@@ -12,7 +12,6 @@ func clearConfigEnv(t *testing.T) {
 	for _, key := range []string{
 		"HOST", "PORT", "AUTH_PATH", "MAX_RETRIES", "COOLDOWN_MINS",
 		"PREFER_PRO", "LOG_LEVEL", "LOG_FORMAT",
-		"CACHE_DIR", "PROTO_OUT", "RELEASE_CHANNEL",
 	} {
 		t.Setenv(key, "")
 	}
@@ -53,15 +52,6 @@ func TestParseConfigDefaults(t *testing.T) {
 	if cfg.LogFormat != "text" {
 		t.Fatalf("LogFormat = %q, want text", cfg.LogFormat)
 	}
-	if cfg.CacheDir != "./.cache" {
-		t.Fatalf("CacheDir = %q, want ./.cache", cfg.CacheDir)
-	}
-	if cfg.ProtoOut != "./pkg/generated" {
-		t.Fatalf("ProtoOut = %q, want ./pkg/generated", cfg.ProtoOut)
-	}
-	if cfg.ReleaseChannel != "prod" {
-		t.Fatalf("ReleaseChannel = %q, want prod", cfg.ReleaseChannel)
-	}
 }
 
 func TestParseConfigFlagsOverrideEnv(t *testing.T) {
@@ -77,9 +67,6 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	t.Setenv("PREFER_PRO", "false")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("LOG_FORMAT", "json")
-	t.Setenv("CACHE_DIR", "./env-cache")
-	t.Setenv("PROTO_OUT", "./env-proto")
-	t.Setenv("RELEASE_CHANNEL", "staging")
 
 	os.Args = []string{
 		"cursed-gateway", "serve",
@@ -91,9 +78,6 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 		"--prefer-pro=true",
 		"-l", "warn",
 		"--log-format", "text",
-		"--cache-dir", "./flag-cache",
-		"--proto-out", "./flag-proto",
-		"--channel", "rc",
 	}
 	cfg, err := ParseConfig("Demo", "demo")
 	if err != nil {
@@ -124,15 +108,6 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	if cfg.LogFormat != "text" {
 		t.Fatalf("LogFormat = %q, want flag to win", cfg.LogFormat)
 	}
-	if cfg.CacheDir != "./flag-cache" {
-		t.Fatalf("CacheDir = %q, want flag to win", cfg.CacheDir)
-	}
-	if cfg.ProtoOut != "./flag-proto" {
-		t.Fatalf("ProtoOut = %q, want flag to win", cfg.ProtoOut)
-	}
-	if cfg.ReleaseChannel != "rc" {
-		t.Fatalf("ReleaseChannel = %q, want flag to win", cfg.ReleaseChannel)
-	}
 }
 
 func TestParseConfigEnvOnly(t *testing.T) {
@@ -145,7 +120,6 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	t.Setenv("AUTH_PATH", "./data/auth.json")
 	t.Setenv("PREFER_PRO", "false")
 	t.Setenv("LOG_LEVEL", "error")
-	t.Setenv("RELEASE_CHANNEL", "experimental")
 
 	os.Args = []string{"cursed-gateway", "serve"}
 	cfg, err := ParseConfig("Demo", "demo")
@@ -167,9 +141,6 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	}
 	if cfg.LogLevel != "error" {
 		t.Fatalf("LogLevel = %q, want env", cfg.LogLevel)
-	}
-	if cfg.ReleaseChannel != "experimental" {
-		t.Fatalf("ReleaseChannel = %q, want env", cfg.ReleaseChannel)
 	}
 }
 

@@ -43,10 +43,6 @@ type AppConfig struct {
 	LogLevel     string
 	LogFormat    string
 
-	CacheDir       string
-	ProtoOut       string
-	ReleaseChannel string
-
 	// SessionsCheck is set by `sessions --check`.
 	SessionsCheck bool
 	// ImportPath is the Cursor-style auth.json path for `import` (default ./data/auth.json).
@@ -65,10 +61,6 @@ func defaultAppConfig() *AppConfig {
 		PreferPro:    true,
 		LogLevel:     "info",
 		LogFormat:    "text",
-
-		CacheDir:       "./.cache",
-		ProtoOut:       "./pkg/generated",
-		ReleaseChannel: "prod",
 
 		ImportPath: "./data/auth.json",
 	}
@@ -211,21 +203,6 @@ func loadEnvVars(appConfig *AppConfig) error {
 	}); err != nil {
 		return err
 	}
-	if err := envIsString("CACHE_DIR", func(value string) {
-		appConfig.CacheDir = value
-	}); err != nil {
-		return err
-	}
-	if err := envIsString("PROTO_OUT", func(value string) {
-		appConfig.ProtoOut = value
-	}); err != nil {
-		return err
-	}
-	if err := envIsString("RELEASE_CHANNEL", func(value string) {
-		appConfig.ReleaseChannel = value
-	}); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -240,12 +217,6 @@ func applyServeFlags(appConfig *AppConfig, cmd *cobra.Command) {
 	cmd.PersistentFlags().BoolVar(&appConfig.PreferPro, "prefer-pro", appConfig.PreferPro, "prefer Pro accounts over Free (PREFER_PRO)")
 	cmd.PersistentFlags().StringVarP(&appConfig.LogLevel, "log-level", "l", appConfig.LogLevel, "log level: debug, info, warn, or error (LOG_LEVEL)")
 	cmd.PersistentFlags().StringVar(&appConfig.LogFormat, "log-format", appConfig.LogFormat, "log format: text or json (LOG_FORMAT)")
-}
-
-func applyProtoFlags(appConfig *AppConfig, cmd *cobra.Command) {
-	cmd.PersistentFlags().StringVar(&appConfig.CacheDir, "cache-dir", appConfig.CacheDir, "cache for Cursor agent binaries and proto artifacts (CACHE_DIR)")
-	cmd.PersistentFlags().StringVar(&appConfig.ProtoOut, "proto-out", appConfig.ProtoOut, "generated Go protobuf output directory (PROTO_OUT)")
-	cmd.PersistentFlags().StringVar(&appConfig.ReleaseChannel, "channel", appConfig.ReleaseChannel, "Cursor agent channel: prod, staging, experimental, or rc (RELEASE_CHANNEL)")
 }
 
 // ParseConfig loads env defaults, parses CLI flags/subcommands, and returns the app config.
@@ -268,7 +239,6 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 	rootCmd.Flags().BoolVarP(&appConfig.ShowVersion, "version", "v", appConfig.ShowVersion, "print version")
 
 	applyServeFlags(appConfig, rootCmd)
-	applyProtoFlags(appConfig, rootCmd)
 
 	if err := loadEnvVars(appConfig); err != nil {
 		return nil, err
