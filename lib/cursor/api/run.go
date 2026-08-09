@@ -189,6 +189,16 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
 					return
 				}
+			case *cursorProto.AgentServerMessage_ExecServerMessage:
+				if err := handleExec(m.ExecServerMessage, payload.Tools, writeFrame); err != nil {
+					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
+					return
+				}
+			case *cursorProto.AgentServerMessage_InteractionQuery:
+				if err := handleInteractionQuery(m.InteractionQuery, writeFrame); err != nil {
+					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
+					return
+				}
 			case *cursorProto.AgentServerMessage_InteractionUpdate:
 				evs, ended := interactionEvents(m.InteractionUpdate)
 				for _, ev := range evs {

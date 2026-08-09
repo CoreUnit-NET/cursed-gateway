@@ -75,6 +75,8 @@ type RunPayload struct {
 	BlobStore    map[string][]byte // hex(blobID) → bytes
 	Conversation string
 	ModelID      string
+	// Tools is echoed into exec request_context replies (may be empty).
+	Tools []*cursorProto.McpToolDefinition
 }
 
 // BuildRunPayload builds an AgentClientMessage run_request (blob system prompt strategy).
