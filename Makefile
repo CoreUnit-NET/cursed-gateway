@@ -271,3 +271,10 @@ docker: ##@ runs a shell in the container
 		--name dev-$(PROJECT_SHORT_NAME) \
 		--entrypoint bash \
 		local
+
+.PHONY: docker/run
+docker/run: ##@ runs app in docker via air (mounted source)
+	@docker rm -f dev-$(PROJECT_SHORT_NAME)-run > /dev/null 2>&1 || true
+	docker compose run --rm -it --build --service-ports \
+		--name dev-$(PROJECT_SHORT_NAME)-run \
+		local
