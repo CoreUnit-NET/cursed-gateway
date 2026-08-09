@@ -18,6 +18,7 @@ _Do you want to use your own account for different personal AI use cases?_
   - [Out of scope](#out-of-scope)
 - [Usage](#usage)
   - [login](#login)
+  - [import](#import)
   - [logout](#logout)
   - [sessions](#sessions)
   - [whoami](#whoami)
@@ -59,10 +60,10 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 
 ### Features
 
-- **OAuth login CLI:** `login` runs a Cursor PKCE login flow and stores tokens locally.
-- **auth.json support:** Import/use Cursor-style auth state; login can create or update the store.
+- **OAuth login CLI:** `login` runs a Cursor PKCE login flow and stores tokens locally in the gateway session store.
+- **Cursor auth.json import:** `import` is the only path that reads Cursor-style `auth.json` and merges sessions into the gateway store.
 - **Multi-account store:** Run several Cursor accounts at once under one gateway.
-- **Account management CLI:** `logout`, `sessions`, and `whoami` operate on the auth store / config only—no need for a running gateway process.
+- **Account management CLI:** `logout`, `sessions`, and `whoami` operate on the session store / config only—no need for a running gateway process.
 - **Staggered token refresh:** Spreads refresh work across accounts (`lifetime - margin`, oldest refresh first). Boot fast-refresh handles tokens close to expiry first.
 - **OpenAI-compatible API:** Text, chat, and streaming; image/media where Cursor supports it.
 - **Model discovery:** Exposes Cursor models via `/v1/models` and a `models` CLI command.
@@ -87,7 +88,9 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 
 ## Usage
 
-Account and inspect commands read/write `AUTH_PATH` and related config. They do **not** talk to a running `serve` process.
+Account and inspect commands read/write `AUTH_PATH` (the gateway session store) and related config. They do **not** talk to a running `serve` process.
+
+Cursor’s own `auth.json` is **not** used as the live store. Bring those sessions in only with [`import`](#import).
 
 Show help messages:
 
@@ -97,15 +100,26 @@ cursed-gateway
 
 ### login
 
-Start the Cursor OAuth PKCE flow and write the access/refresh session into the auth store:
+Start the Cursor OAuth PKCE flow and write the access/refresh session into the gateway session store:
 
 ```sh
 cursed-gateway login
 ```
 
+### import
+
+Import a Cursor-style `auth.json` into the gateway session store (`AUTH_PATH`). This is the only supported way to consume Cursor `auth.json`:
+
+```sh
+cursed-gateway import
+cursed-gateway import ./path/to/auth.json
+```
+
+Default import source is `./data/auth.json` when no path is given. Existing sessions in the gateway store are merged, not replaced wholesale.
+
 ### logout
 
-Remove one or more sessions from the auth store (file/config only):
+Remove one or more sessions from the gateway session store (file/config only):
 
 ```sh
 cursed-gateway logout
@@ -178,7 +192,7 @@ A `.env` file in the working directory is loaded at startup when present (missin
 
 - `HOST` or `--host`: bind host, defaults to `0.0.0.0`
 - `PORT` or `-p` / `--port`: bind port, defaults to `8080`
-- `AUTH_PATH` or `-a` / `--auth`: auth / multi-account state file, defaults to `./auth.json`
+- `AUTH_PATH` or `-a` / `--auth`: gateway multi-account session store (not Cursor `auth.json`), defaults to `./data/data.json`
 - `MAX_RETRIES` or `-r` / `--retries`: max account fallback attempts per request, defaults to `5`
 - `COOLDOWN_MINS` or `-c` / `--cooldown`: cooldown minutes for rate-limited accounts, defaults to `15`
 - `PREFER_PRO` or `--prefer-pro`: prefer Pro accounts over Free, defaults to `true`
