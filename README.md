@@ -7,7 +7,7 @@
 ![](https://img.shields.io/badge/dynamic/json?color=yellow&label=stars&query=stargazers_count&suffix=x&url=https%3A%2F%2Fapi.github.com%2Frepos%2FCoreUnit-NET%2Fcursed-gateway)
 ![](https://img.shields.io/badge/dynamic/json?color=navy&label=forks&query=forks&suffix=x&url=https%3A%2F%2Fapi.github.com%2Frepos%2FCoreUnit-NET%2Fcursed-gateway)
 
-_Do you want to use your own cursor account for different personal AI use cases?_
+_Do you want to use your own account for different personal AI use cases?_
 `cursed-gateway` is a Cursor API proxy gateway that solves that for you.
 
 # Table of Contents
