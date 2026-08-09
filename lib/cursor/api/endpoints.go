@@ -1,8 +1,6 @@
 package cursor_api_sdk
 
 /*
-Thin mappers onto generated protobuf / Connect endpoints only.
-
-Keep signatures minimal. No extra utils or domain structs here — put
-those in service.go or utils.go.
+Path constants for Cursor Connect / JSON endpoints are declared on Client
+in client.go (AvailableModels, GetServerConfig, AgentService/Run).
 */
