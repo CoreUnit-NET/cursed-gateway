@@ -1,0 +1,19 @@
+##@
+##@ Proto pipeline (cmd/proto)
+##@ Regenerates lib/cursorProto only when the local cursor-agent binaries change.
+##@
+
+.PHONY: proto
+proto: ##@ run proto toolchain via go
+	go run ./cmd/proto $(ARGS)
+
+.PHONY: docker/proto
+docker/proto: ##@ run proto toolchain in docker
+	mkdir -p .tmp/go-build
+	CACHE_DIR=./.tmp/go-build docker compose run --rm --entrypoint "" --user "$(shell id -u):$(shell id -g)" \
+		-e HOME=/tmp \
+		-e GOPATH=/tmp/go \
+		-e GOCACHE=/tmp/gocache \
+		-v "$(HOME)/.local/share/cursor-agent:/tmp/.local/share/cursor-agent:ro" \
+		local \
+		go run ./cmd/proto $(ARGS)
