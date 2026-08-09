@@ -10,7 +10,7 @@ services:
         source: .
         target: /app
       - type: bind
-        source: ${CACHE_DIR}
+        source: ${CACHE_DIR:-./.tmp/go-build}
         target: /root/.cache/go-build
     env_file: ".env"
         
@@ -31,4 +31,3 @@ services:
     ports:
       - "127.0.0.1:${PORT}:8080"
     env_file: ".env"
-
