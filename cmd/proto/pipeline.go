@@ -1,8 +1,8 @@
 package main
 
 /*
-Compare local cursor-agent scan binaries to the cached copy. Only when they
-change (or --force): replace the cache, extract descriptors → protoc → validate.
+Compare descriptor inputs to the cached fingerprint. Only when they change
+(or --force): extract descriptors → protoc → validate.
 */
 
 import (
@@ -20,8 +20,7 @@ import (
 
 const (
 	modulePath     = "github.com/CoreUnit-NET/cursed-gateway"
-	agentSubdir    = "agent"
-	agentHashFile  = "agent.sha256"
+	agentHashFile  = "inputs.sha256"
 	extractSubdir  = "extract"
 	selectedSubdir = "selected"
 )
@@ -37,47 +36,34 @@ var (
 	goPackageRE = regexp.MustCompile(`(?m)^\s*option\s+go_package\s*=\s*"[^"]*"\s*;`)
 )
 
-// Run skips work when the cached agent binaries match the local install.
+// Run skips work when descriptor inputs match the last successful generation.
 func Run(cfg *Config, deps *Deps) error {
 	hashPath := filepath.Join(cfg.CacheDir, agentHashFile)
-	agentCache := filepath.Join(cfg.CacheDir, agentSubdir)
 	rawDir := filepath.Join(cfg.CacheDir, extractSubdir, "raw")
 
-	newHash, err := hashFiles(deps.ScanFiles)
+	newHash, err := fingerprintInputs(deps)
 	if err != nil {
 		return err
 	}
 
-	if !cfg.Force && agentUnchanged(hashPath, newHash) && hasGenerated(cfg.ProtoOut) {
-		fmt.Println("Cached cursor-agent unchanged — skipping extract/codegen")
+	if !cfg.Force && inputsUnchanged(hashPath, newHash) && hasGenerated(cfg.ProtoOut) {
+		fmt.Println("Inputs unchanged — skipping extract/codegen")
 		return validateGenerated(cfg.ProtoOut)
 	}
 
-	fmt.Println("cursor-agent changed (or --force) — refreshing cache and regenerating")
-	if err := replaceAgentCache(agentCache, deps.ScanFiles); err != nil {
-		return err
-	}
-	if err := os.WriteFile(hashPath, []byte(newHash+"\n"), 0o644); err != nil {
-		return err
-	}
-
-	cachedScans, err := listCachedScans(agentCache)
-	if err != nil {
-		return err
-	}
-
+	fmt.Println("Regenerating lib/cursorProto...")
 	_ = os.RemoveAll(rawDir)
 	if err := os.MkdirAll(rawDir, 0o755); err != nil {
 		return err
 	}
 
 	fmt.Println("Extracting protobuf descriptors...")
-	wrote, err := extractDescriptors(deps, cachedScans, rawDir)
+	wrote, err := extractDescriptors(deps, rawDir)
 	if err != nil {
 		return err
 	}
 	if wrote == 0 {
-		return fmt.Errorf("extracted 0 protobuf descriptors from %d scan targets", len(cachedScans))
+		return fmt.Errorf("extracted 0 protobuf descriptors from agent %s", deps.AgentVer)
 	}
 	fmt.Printf("Extracted %d descriptor artifact(s)\n", wrote)
 
@@ -86,109 +72,79 @@ func Run(cfg *Config, deps *Deps) error {
 		return err
 	}
 
-	// Prefer descriptor-set codegen when we have .fd blobs (fileDesc path).
 	if len(fds) > 0 {
 		if err := codegenFromDescriptors(cfg, deps, fds); err != nil {
 			return err
 		}
-		return validateGenerated(cfg.ProtoOut)
+	} else {
+		selectedDir := filepath.Join(cfg.CacheDir, extractSubdir, selectedSubdir)
+		kept, err := selectAndRewrite(rawDir, selectedDir)
+		if err != nil {
+			return err
+		}
+		if len(kept) == 0 {
+			return fmt.Errorf("no agent.v1 / aiserver.v1 protos found after filter")
+		}
+		fmt.Printf("Selected %d proto file(s)\n", len(kept))
+		if err := codegen(cfg, deps, selectedDir, kept); err != nil {
+			return err
+		}
 	}
 
-	// Legacy protodump text .proto path.
-	selectedDir := filepath.Join(cfg.CacheDir, extractSubdir, selectedSubdir)
-	kept, err := selectAndRewrite(rawDir, selectedDir)
+	if err := validateGenerated(cfg.ProtoOut); err != nil {
+		return err
+	}
+	if err := os.WriteFile(hashPath, []byte(newHash+"\n"), 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+// fingerprintInputs hashes the inputs that affect generated Go.
+// Node agents currently codegen from the committed agent_pb.ts fallback
+// (live JS has no FileDescriptorProto), keyed by agent version.
+// Binary agents hash the scanned ELF binaries.
+func fingerprintInputs(deps *Deps) (string, error) {
+	h := sha256.New()
+	fmt.Fprintf(h, "agent=%s\n", deps.AgentVer)
+	if deps.NodeAgent {
+		fmt.Fprintf(h, "kind=node\n")
+		fallback := filepath.Join(findModuleRoot(), repoAgentPBTS)
+		if err := hashNamedFile(h, fallback); err != nil {
+			return "", fmt.Errorf("fallback descriptor source: %w", err)
+		}
+	} else {
+		fmt.Fprintf(h, "kind=binary\n")
+		for _, f := range deps.ScanFiles {
+			if err := hashNamedFile(h, f); err != nil {
+				return "", err
+			}
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func hashNamedFile(h io.Writer, path string) error {
+	fmt.Fprintf(h, "file=%s\n", filepath.Base(path))
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	if len(kept) == 0 {
-		return fmt.Errorf("no agent.v1 / aiserver.v1 protos found after filter")
+	_, copyErr := io.Copy(h, f)
+	_ = f.Close()
+	if copyErr != nil {
+		return copyErr
 	}
-	fmt.Printf("Selected %d proto file(s)\n", len(kept))
-	if err := codegen(cfg, deps, selectedDir, kept); err != nil {
-		return err
-	}
-	return validateGenerated(cfg.ProtoOut)
+	_, err = h.Write([]byte{0})
+	return err
 }
 
-func agentUnchanged(hashPath, newHash string) bool {
+func inputsUnchanged(hashPath, newHash string) bool {
 	old, err := os.ReadFile(hashPath)
 	if err != nil {
 		return false
 	}
 	return strings.TrimSpace(string(old)) == newHash
-}
-
-func hashFiles(paths []string) (string, error) {
-	h := sha256.New()
-	for _, p := range paths {
-		fmt.Fprintf(h, "%s\n", filepath.Base(p))
-		f, err := os.Open(p)
-		if err != nil {
-			return "", err
-		}
-		_, copyErr := io.Copy(h, f)
-		_ = f.Close()
-		if copyErr != nil {
-			return "", copyErr
-		}
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func replaceAgentCache(agentCache string, scanFiles []string) error {
-	_ = os.RemoveAll(agentCache)
-	if err := os.MkdirAll(agentCache, 0o755); err != nil {
-		return err
-	}
-	for _, src := range scanFiles {
-		dst := filepath.Join(agentCache, filepath.Base(src))
-		if err := copyFile(src, dst); err != nil {
-			return fmt.Errorf("cache agent file %s: %w", filepath.Base(src), err)
-		}
-	}
-	fmt.Printf("Cached %d agent scan file(s) under %s\n", len(scanFiles), agentCache)
-	return nil
-}
-
-func listCachedScans(agentCache string) ([]string, error) {
-	entries, err := os.ReadDir(agentCache)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		out = append(out, filepath.Join(agentCache, e.Name()))
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("no files in agent cache %s", agentCache)
-	}
-	return out, nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	st, err := in.Stat()
-	if err != nil {
-		return err
-	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, st.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	if copyErr != nil {
-		return copyErr
-	}
-	return closeErr
 }
 
 func hasGenerated(protoOut string) bool {
@@ -199,12 +155,12 @@ func hasGenerated(protoOut string) bool {
 func runProtodump(bin string, files []string, outDir string) (int, error) {
 	before, _ := countProtoFiles(outDir)
 	for _, file := range files {
-		fmt.Printf("  protodump -file %s\n", file)
+		fmt.Printf("  protodump -file %s\n", filepath.Base(file))
 		cmd := exec.Command(bin, "-file", file, "-output", outDir)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			fmt.Printf("  warning: protodump failed on %s: %v\n", file, err)
+			fmt.Printf("  warning: protodump failed on %s: %v\n", filepath.Base(file), err)
 		}
 	}
 	after, err := countProtoFiles(outDir)
@@ -318,7 +274,6 @@ func injectGoPackage(data []byte, pkg, rel string) []byte {
 }
 
 func goPackageFor(pkg, rel string) string {
-	// Flat layout: all generated Go lives in lib/cursorProto with package cursorProto.
 	_ = pkg
 	_ = rel
 	return modulePath + "/lib/cursorProto;cursorProto"

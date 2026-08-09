@@ -2,10 +2,11 @@ package main
 
 /*
 Extract FileDescriptorProtos from Cursor artifacts:
-  1) protodump against binaries / raw embeds
-  2) @bufbuild fileDesc("base64...") strings in JS/TS
-  3) repo descriptor dump (agent_pb.ts) when the local agent is Node-based
-    and embeds agent.v1 runtime types but no FileDescriptorProto
+
+  1) @bufbuild fileDesc("base64...") embeds in agent JS/TS
+  2) committed repo dump (agent_pb.ts) for Node agents that ship
+     runtime field lists but no FileDescriptorProto
+  3) protodump against ELF binaries (legacy / non-Node agents)
 */
 
 import (
@@ -20,44 +21,36 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-const (
-	repoAgentPBTS = "context/cursor-openai-api/src/cursor/proto/agent_pb.ts"
-)
+const repoAgentPBTS = "context/cursor-openai-api/src/cursor/proto/agent_pb.ts"
 
-func extractDescriptors(deps *Deps, scanFiles []string, rawDir string) (int, error) {
+func extractDescriptors(deps *Deps, rawDir string) (int, error) {
 	wrote := 0
 
-	// 1) classic protodump (works on Go-built agent binaries)
-	n, err := runProtodump(deps.Protodump, scanFiles, rawDir)
-	if err != nil {
-		return 0, err
-	}
-	wrote += n
-
-	// 2) fileDesc("...") embeds in scanned JS/TS
-	for _, f := range scanFiles {
+	// 1) fileDesc embeds in scanned JS/TS
+	for _, f := range deps.ScanFiles {
+		lower := strings.ToLower(f)
+		if !strings.HasSuffix(lower, ".js") && !strings.HasSuffix(lower, ".ts") {
+			continue
+		}
 		n, err := writeFileDescProtos(f, rawDir)
 		if err != nil {
-			fmt.Printf("  warning: fileDesc extract %s: %v\n", f, err)
+			fmt.Printf("  warning: fileDesc extract %s: %v\n", filepath.Base(f), err)
 			continue
 		}
 		wrote += n
 	}
-
 	if wrote > 0 {
 		return wrote, nil
 	}
 
-	// 3) Node agent fallback: Cursor ships runtime field lists, not FDs.
-	//    Use the committed agent_pb.ts descriptor dump when the agent clearly
-	//    contains agent.v1 (validated against required symbol names).
-	if agentLooksLikeNodeAgent(scanFiles) {
+	// 2) Node agent fallback: committed descriptor dump
+	if deps.NodeAgent {
 		root := findModuleRoot()
 		fallback := filepath.Join(root, repoAgentPBTS)
 		if _, err := os.Stat(fallback); err != nil {
-			return 0, fmt.Errorf("protodump/fileDesc found nothing, and fallback %s missing", fallback)
+			return 0, fmt.Errorf("node cursor-agent has no embedded FileDescriptorProto, and fallback %s is missing", fallback)
 		}
-		fmt.Printf("Node cursor-agent has no embedded FileDescriptorProto — using %s\n", repoAgentPBTS)
+		fmt.Printf("Node cursor-agent has no embedded descriptors — using %s\n", repoAgentPBTS)
 		n, err := writeFileDescProtos(fallback, rawDir)
 		if err != nil {
 			return 0, err
@@ -68,7 +61,15 @@ func extractDescriptors(deps *Deps, scanFiles []string, rawDir string) (int, err
 		return n, nil
 	}
 
-	return 0, nil
+	// 3) Binary agent: protodump ELF targets
+	if deps.Protodump == "" {
+		return 0, fmt.Errorf("protodump not available for binary agent extract")
+	}
+	n, err := runProtodump(deps.Protodump, deps.ScanFiles, rawDir)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 func agentLooksLikeNodeAgent(scanFiles []string) bool {
@@ -81,8 +82,9 @@ func agentLooksLikeNodeAgent(scanFiles []string) bool {
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(data), `typeName:"agent.v1.AgentClientMessage"`) ||
-			strings.Contains(string(data), `typeName:"agent.v1.AgentService"`) {
+		s := string(data)
+		if strings.Contains(s, `typeName:"agent.v1.AgentClientMessage"`) ||
+			strings.Contains(s, `typeName:"agent.v1.AgentService"`) {
 			return true
 		}
 	}
@@ -105,10 +107,8 @@ func writeFileDescProtos(path, rawDir string) (int, error) {
 		if name == "" || !strings.HasSuffix(name, ".proto") {
 			continue
 		}
-		// Keep agent / aiserver / google only.
 		pkg := fd.GetPackage()
 		if !wantPackage(pkg, nil) && pkg != "" {
-			// still allow by filename
 			base := filepath.Base(name)
 			if base != "agent.proto" && !strings.Contains(name, "aiserver") && !strings.Contains(name, "google/protobuf") {
 				continue
@@ -119,8 +119,7 @@ func writeFileDescProtos(path, rawDir string) (int, error) {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return wrote, err
 		}
-		// Store raw FD bytes alongside; also emit via descriptor→proto text using protoc.
-		if err := writeProtoFromFD(&fd, dest); err != nil {
+		if err := os.WriteFile(dest+".fd", mustMarshalFD(&fd), 0o644); err != nil {
 			fmt.Printf("  warning: skip %s: %v\n", name, err)
 			continue
 		}
@@ -137,20 +136,6 @@ func sanitizeProtoPath(name string) string {
 		return "unknown.proto"
 	}
 	return name
-}
-
-// writeProtoFromFD uses protoc to decode a FileDescriptorSet into .proto text.
-func writeProtoFromFD(fd *descriptorpb.FileDescriptorProto, dest string) error {
-	// Prefer regenerating source via a temporary descriptor set + protoc --decode_raw is useless.
-	// Instead marshal FD and use the protobuf text format from protowire via a small helper:
-	// We call `protoc --descriptor_set_in` only at codegen time; here write a minimal .proto
-	// by asking protoc to dump? Not available.
-	//
-	// Practical approach: write the FileDescriptorProto bytes to dest+".fd" and a stub .proto
-	// is NOT enough for selectAndRewrite.
-	//
-	// Use descriptor set file next to dest and let codegen consume FDs directly.
-	return os.WriteFile(dest+".fd", mustMarshalFD(fd), 0o644)
 }
 
 func mustMarshalFD(fd *descriptorpb.FileDescriptorProto) []byte {
@@ -178,7 +163,6 @@ func extractFileDescBlobs(data []byte) [][]byte {
 		}
 		raw, err := base64.StdEncoding.DecodeString(payload)
 		if err != nil {
-			// try raw std without padding issues
 			raw, err = base64.RawStdEncoding.DecodeString(payload)
 			if err != nil {
 				continue
@@ -232,7 +216,6 @@ func readConcatStrings(s string) (payload string, rest string, ok bool) {
 	if !found {
 		return "", s, false
 	}
-	// consume through closing paren if present
 	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == ',') {
 		i++
 	}
@@ -248,20 +231,18 @@ func loadFileDescriptors(rawDir string) ([]*descriptorpb.FileDescriptorProto, er
 		if err != nil || d.IsDir() {
 			return err
 		}
-		switch {
-		case strings.HasSuffix(d.Name(), ".fd"):
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			var fd descriptorpb.FileDescriptorProto
-			if err := proto.Unmarshal(data, &fd); err != nil {
-				return nil
-			}
-			out = append(out, &fd)
-		case strings.HasSuffix(d.Name(), ".proto"):
-			// text protos from protodump — leave for selectAndRewrite path
+		if !strings.HasSuffix(d.Name(), ".fd") {
+			return nil
 		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var fd descriptorpb.FileDescriptorProto
+		if err := proto.Unmarshal(data, &fd); err != nil {
+			return nil
+		}
+		out = append(out, &fd)
 		return nil
 	})
 	return out, err
@@ -275,7 +256,6 @@ func injectGoPackageFD(fd *descriptorpb.FileDescriptorProto) {
 		fd.Options = &descriptorpb.FileOptions{}
 	}
 	fd.Options.GoPackage = proto.String(goPkg)
-	// Flat layout: lib/cursorProto/agent.pb.go (package cursorProto).
 	switch {
 	case pkg == "agent.v1" || strings.HasPrefix(pkg, "agent."):
 		fd.Name = proto.String("agent.proto")
@@ -337,7 +317,6 @@ func fixNestedOneofCollisions(fd *descriptorpb.FileDescriptorProto) {
 		fmt.Printf("  renamed %s -> %s (oneof/Go name collision)\n", oldFull, newFull)
 	}
 
-	// Also handle true nested DescriptorProto trees (non-flattened descriptors).
 	for _, msg := range fd.MessageType {
 		fixMessageOneofCollisions(fd, pkg, msg, []string{msg.GetName()})
 	}
@@ -471,7 +450,6 @@ func goCamelCase(s string) string {
 			b.WriteByte(c)
 		}
 	}
-	// Trailing underscore(s) become a trailing 'X' (protobuf GoCamelCase).
 	if wasUnderscore {
 		b.WriteByte('X')
 	}

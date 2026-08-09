@@ -10,10 +10,10 @@ services:
         source: .
         target: /app
       - type: bind
-        source: ${CACHE_DIR:-./.tmp/go-build}
+        source: ${GO_BUILD_CACHE:-./.tmp/go-build}
         target: /root/.cache/go-build
     env_file: ".env"
-        
+
   lint:
     image: golangci/golangci-lint:v1
     command: "golangci-lint run -v"

@@ -9,7 +9,7 @@ Every field must have a validator that runs before Settings is returned.
 Session token persistence stays in login_session; this package only
 exposes paths and runtime options from config (e.g. AUTH_PATH / data dir).
 
-Proto toolchain options (CACHE_DIR / PROTO_OUT / RELEASE_CHANNEL) live
+Proto toolchain options (PROTO_CACHE_DIR / PROTO_OUT / PROTO_AGENT_BIN) live
 only in cmd/proto — not here.
 */
 

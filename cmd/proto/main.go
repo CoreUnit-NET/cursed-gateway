@@ -1,10 +1,10 @@
 package main
 
 /*
-Proto toolchain: local cursor-agent → protodump → protoc → lib/cursorProto.
+Proto toolchain: local cursor-agent → descriptors → protoc → lib/cursorProto.
 
-Skips extract/codegen when the cached agent scan binaries match the local
-install. Cache/tools live under .tmp/proto; generated Go goes to PROTO_OUT.
+Skips work when the agent version and descriptor sources are unchanged.
+Tools live under PROTO_CACHE_DIR; generated Go goes to PROTO_OUT.
 */
 
 import (
@@ -39,5 +39,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Printf("Done — generated protos under %s\n", cfg.ProtoOut)
+	fmt.Printf("Done — %s\n", cfg.ProtoOut)
 }

@@ -1,8 +1,8 @@
 package main
 
 /*
-Install toolchain binaries into CACHE_DIR and resolve the local cursor-agent
-package to scan. No remote agent download — use a local install.
+Install toolchain binaries into PROTO_CACHE_DIR and resolve the local
+cursor-agent package. No remote agent download — use a local install.
 */
 
 import (
@@ -32,7 +32,9 @@ type Deps struct {
 	Protoc    string
 	PluginDir string
 	AgentDir  string
+	AgentVer  string   // directory basename, e.g. 2026.07.16-899851b
 	ScanFiles []string // absolute paths under the source agent install
+	NodeAgent bool
 }
 
 // Ensure installs tools into cache and resolves the local agent package.
@@ -54,17 +56,13 @@ func Ensure(cfg *Config) (*Deps, error) {
 		return nil, err
 	}
 
-	protodumpBin, err := ensureGoInstall(cfg.CacheDir, toolsDir, "protodump", protodumpPkg)
-	if err != nil {
-		return nil, fmt.Errorf("protodump: %w", err)
+	pluginDir := filepath.Join(toolsDir, "go-bin")
+	if _, err := ensureGoInstall(cfg.CacheDir, toolsDir, "protoc-gen-go", protocGenGoPkg); err != nil {
+		return nil, fmt.Errorf("protoc-gen-go: %w", err)
 	}
 	protocBin, err := ensureProtoc(toolsDir)
 	if err != nil {
 		return nil, fmt.Errorf("protoc: %w", err)
-	}
-	pluginDir := filepath.Join(toolsDir, "go-bin")
-	if _, err := ensureGoInstall(cfg.CacheDir, toolsDir, "protoc-gen-go", protocGenGoPkg); err != nil {
-		return nil, fmt.Errorf("protoc-gen-go: %w", err)
 	}
 
 	agentDir, singleFile, err := resolveLocalAgent(cfg.AgentBin)
@@ -85,12 +83,25 @@ func Ensure(cfg *Config) (*Deps, error) {
 		return nil, fmt.Errorf("no scan targets found under %s", agentDir)
 	}
 
+	nodeAgent := agentLooksLikeNodeAgent(scanFiles)
+
+	// protodump is only needed for binary (non-Node) agents.
+	protodumpBin := ""
+	if !nodeAgent {
+		protodumpBin, err = ensureGoInstall(cfg.CacheDir, toolsDir, "protodump", protodumpPkg)
+		if err != nil {
+			return nil, fmt.Errorf("protodump: %w", err)
+		}
+	}
+
 	return &Deps{
 		Protodump: protodumpBin,
 		Protoc:    protocBin,
 		PluginDir: pluginDir,
 		AgentDir:  agentDir,
+		AgentVer:  filepath.Base(agentDir),
 		ScanFiles: scanFiles,
+		NodeAgent: nodeAgent,
 	}, nil
 }
 
@@ -243,19 +254,21 @@ func newestAgentPackage(versionsDir string) (string, error) {
 	return bestDir, nil
 }
 
+// discoverScanTargets picks a small set of files worth scanning.
+// Node agents: just the JS entrypoints. Binary agents: ELF executables.
 func discoverScanTargets(agentDir string) ([]string, error) {
-	prefer := map[string]int{
-		"index.js":            100,
-		"cursor-agent-svc.js": 90,
-		"crepectl":            20,
-		"cursorsandbox":       15,
+	var js []string
+	for _, name := range []string{"index.js", "cursor-agent-svc.js"} {
+		p := filepath.Join(agentDir, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			js = append(js, p)
+		}
 	}
-	type scored struct {
-		path  string
-		score int
-		size  int64
+	if len(js) > 0 {
+		return js, nil
 	}
-	var items []scored
+
+	var elfs []string
 	err := filepath.WalkDir(agentDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -267,51 +280,23 @@ func discoverScanTargets(agentDir string) ([]string, error) {
 			}
 			return nil
 		}
-		name := d.Name()
-		lower := strings.ToLower(name)
 		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
-		if name == "node" || strings.HasSuffix(lower, ".node") || strings.HasSuffix(lower, ".mp4") {
-			return nil
+		if isLikelyELFExecutable(path, info) {
+			elfs = append(elfs, path)
 		}
-		score := prefer[name]
-		switch {
-		case strings.HasSuffix(lower, ".js"):
-			if info.Size() < 50_000 && score == 0 {
-				return nil
-			}
-			score += int(info.Size() / 100_000)
-		case isLikelyELFExecutable(path, info):
-			score += 30
-		default:
-			if score == 0 {
-				return nil
-			}
-		}
-		items = append(items, scored{path, score, info.Size()})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	for i := 0; i < len(items); i++ {
-		for j := i + 1; j < len(items); j++ {
-			if items[j].score > items[i].score || (items[j].score == items[i].score && items[j].size > items[i].size) {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
+	const maxTargets = 8
+	if len(elfs) > maxTargets {
+		elfs = elfs[:maxTargets]
 	}
-	const maxTargets = 12
-	if len(items) > maxTargets {
-		items = items[:maxTargets]
-	}
-	out := make([]string, len(items))
-	for i, it := range items {
-		out[i] = it.path
-	}
-	return out, nil
+	return elfs, nil
 }
 
 func isLikelyELFExecutable(path string, info os.FileInfo) bool {
