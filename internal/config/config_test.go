@@ -35,8 +35,8 @@ func TestParseConfigDefaults(t *testing.T) {
 	if cfg.Port != 8080 {
 		t.Fatalf("Port = %d, want 8080", cfg.Port)
 	}
-	if cfg.AuthPath != "./auth.json" {
-		t.Fatalf("AuthPath = %q, want ./auth.json", cfg.AuthPath)
+	if cfg.AuthPath != "./data/data.json" {
+		t.Fatalf("AuthPath = %q, want ./data/data.json", cfg.AuthPath)
 	}
 	if cfg.MaxRetries != 5 {
 		t.Fatalf("MaxRetries = %d, want 5", cfg.MaxRetries)
@@ -213,5 +213,39 @@ func TestParseConfigHelpRequested(t *testing.T) {
 	_, err := ParseConfig("Demo", "demo")
 	if !errors.Is(err, ErrHelpRequested) {
 		t.Fatalf("err = %v, want ErrHelpRequested", err)
+	}
+}
+
+func TestParseConfigSubcommands(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	clearConfigEnv(t)
+
+	cases := []struct {
+		args    []string
+		command string
+		check   bool
+		imp     string
+	}{
+		{[]string{"cursed-gateway", "login"}, CommandLogin, false, "./data/auth.json"},
+		{[]string{"cursed-gateway", "sessions", "--check"}, CommandSessions, true, "./data/auth.json"},
+		{[]string{"cursed-gateway", "import", "/tmp/auth.json"}, CommandImport, false, "/tmp/auth.json"},
+		{[]string{"cursed-gateway", "serve"}, CommandServe, false, "./data/auth.json"},
+	}
+	for _, tc := range cases {
+		os.Args = tc.args
+		cfg, err := ParseConfig("Demo", "demo")
+		if err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if cfg.Command != tc.command {
+			t.Fatalf("%v: Command=%q want %q", tc.args, cfg.Command, tc.command)
+		}
+		if cfg.SessionsCheck != tc.check {
+			t.Fatalf("%v: SessionsCheck=%v want %v", tc.args, cfg.SessionsCheck, tc.check)
+		}
+		if cfg.ImportPath != tc.imp {
+			t.Fatalf("%v: ImportPath=%q want %q", tc.args, cfg.ImportPath, tc.imp)
+		}
 	}
 }

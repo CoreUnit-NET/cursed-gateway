@@ -14,8 +14,25 @@ import (
 
 const helpURL = "https://github.com/CoreUnit-NET/cursed-gateway"
 
+// Known subcommand names captured in AppConfig.Command after ParseConfig.
+const (
+	CommandVersion  = "version"
+	CommandLogin    = "login"
+	CommandLogout   = "logout"
+	CommandSessions = "sessions"
+	CommandWhoami   = "whoami"
+	CommandModels   = "models"
+	CommandServe    = "serve"
+	CommandImport   = "import"
+)
+
 type AppConfig struct {
 	ShowVersion bool
+
+	// Command is the selected subcommand name (see Command* constants), or empty for bare root.
+	Command string
+	// Args are positional args passed to the selected subcommand.
+	Args []string
 
 	Host         string
 	Port         int
@@ -29,6 +46,11 @@ type AppConfig struct {
 	CacheDir       string
 	ProtoOut       string
 	ReleaseChannel string
+
+	// SessionsCheck is set by `sessions --check`.
+	SessionsCheck bool
+	// ImportPath is the Cursor-style auth.json path for `import` (default ./data/auth.json).
+	ImportPath string
 }
 
 func defaultAppConfig() *AppConfig {
@@ -37,7 +59,7 @@ func defaultAppConfig() *AppConfig {
 
 		Host:         "0.0.0.0",
 		Port:         8080,
-		AuthPath:     "./auth.json",
+		AuthPath:     "./data/data.json",
 		MaxRetries:   5,
 		CooldownMins: 15,
 		PreferPro:    true,
@@ -47,6 +69,8 @@ func defaultAppConfig() *AppConfig {
 		CacheDir:       "./.cache",
 		ProtoOut:       "./pkg/generated",
 		ReleaseChannel: "prod",
+
+		ImportPath: "./data/auth.json",
 	}
 }
 
@@ -56,56 +80,93 @@ func versionCommand(appConfig *AppConfig) *cobra.Command {
 		Short: "Print version",
 		Run: func(cmd *cobra.Command, args []string) {
 			appConfig.ShowVersion = true
+			appConfig.Command = CommandVersion
+			appConfig.Args = args
 		},
 	}
 }
 
-func loginCommand() *cobra.Command {
+func loginCommand(appConfig *AppConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "login",
 		Short: "Run Cursor OAuth PKCE login and store the session",
-		Run:   func(cmd *cobra.Command, args []string) {},
+		Run: func(cmd *cobra.Command, args []string) {
+			appConfig.Command = CommandLogin
+			appConfig.Args = args
+		},
 	}
 }
 
-func logoutCommand() *cobra.Command {
+func logoutCommand(appConfig *AppConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout [session-id]",
 		Short: "Remove one or more sessions from the auth store",
 		Args:  cobra.MaximumNArgs(1),
-		Run:   func(cmd *cobra.Command, args []string) {},
+		Run: func(cmd *cobra.Command, args []string) {
+			appConfig.Command = CommandLogout
+			appConfig.Args = args
+		},
 	}
 }
 
-func sessionsCommand() *cobra.Command {
-	return &cobra.Command{
+func sessionsCommand(appConfig *AppConfig) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "sessions",
 		Short: "List stored auth sessions",
-		Run:   func(cmd *cobra.Command, args []string) {},
+		Run: func(cmd *cobra.Command, args []string) {
+			appConfig.Command = CommandSessions
+			appConfig.Args = args
+		},
 	}
+	cmd.Flags().BoolVar(&appConfig.SessionsCheck, "check", false, "validate sessions against Cursor")
+	return cmd
 }
 
-func whoamiCommand() *cobra.Command {
+func whoamiCommand(appConfig *AppConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "whoami",
 		Short: "Show local session identity metadata",
-		Run:   func(cmd *cobra.Command, args []string) {},
+		Run: func(cmd *cobra.Command, args []string) {
+			appConfig.Command = CommandWhoami
+			appConfig.Args = args
+		},
 	}
 }
 
-func modelsCommand() *cobra.Command {
+func modelsCommand(appConfig *AppConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "models",
 		Short: "Fetch and print available Cursor models",
-		Run:   func(cmd *cobra.Command, args []string) {},
+		Run: func(cmd *cobra.Command, args []string) {
+			appConfig.Command = CommandModels
+			appConfig.Args = args
+		},
 	}
 }
 
-func serveCommand() *cobra.Command {
+func serveCommand(appConfig *AppConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
 		Short: "Start the OpenAI-compatible proxy HTTP server",
-		Run:   func(cmd *cobra.Command, args []string) {},
+		Run: func(cmd *cobra.Command, args []string) {
+			appConfig.Command = CommandServe
+			appConfig.Args = args
+		},
+	}
+}
+
+func importCommand(appConfig *AppConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "import [auth.json]",
+		Short: "Import Cursor-style auth.json into the gateway session store",
+		Args:  cobra.MaximumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			appConfig.Command = CommandImport
+			appConfig.Args = args
+			if len(args) > 0 {
+				appConfig.ImportPath = args[0]
+			}
+		},
 	}
 }
 
@@ -173,7 +234,7 @@ func applyServeFlags(appConfig *AppConfig, cmd *cobra.Command) {
 	// --host has no -h shorthand (reserved for cobra help).
 	cmd.PersistentFlags().StringVar(&appConfig.Host, "host", appConfig.Host, "bind host (HOST)")
 	cmd.PersistentFlags().IntVarP(&appConfig.Port, "port", "p", appConfig.Port, "bind port (PORT)")
-	cmd.PersistentFlags().StringVarP(&appConfig.AuthPath, "auth", "a", appConfig.AuthPath, "auth / multi-account state file (AUTH_PATH)")
+	cmd.PersistentFlags().StringVarP(&appConfig.AuthPath, "auth", "a", appConfig.AuthPath, "gateway multi-account session store path (AUTH_PATH); not Cursor auth.json")
 	cmd.PersistentFlags().IntVarP(&appConfig.MaxRetries, "retries", "r", appConfig.MaxRetries, "max account fallback attempts per request (MAX_RETRIES)")
 	cmd.PersistentFlags().IntVarP(&appConfig.CooldownMins, "cooldown", "c", appConfig.CooldownMins, "cooldown minutes for rate-limited accounts (COOLDOWN_MINS)")
 	cmd.PersistentFlags().BoolVar(&appConfig.PreferPro, "prefer-pro", appConfig.PreferPro, "prefer Pro accounts over Free (PREFER_PRO)")
@@ -198,7 +259,10 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 	rootCmd := &cobra.Command{
 		Use:   shortName,
 		Short: short,
-		Run:   func(cmd *cobra.Command, args []string) {},
+		Run: func(cmd *cobra.Command, args []string) {
+			// Bare root with no subcommand: leave Command empty so main can print help.
+			appConfig.Args = args
+		},
 	}
 
 	rootCmd.Flags().BoolVarP(&appConfig.ShowVersion, "version", "v", appConfig.ShowVersion, "print version")
@@ -212,12 +276,13 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 
 	rootCmd.AddCommand(
 		versionCommand(appConfig),
-		loginCommand(),
-		logoutCommand(),
-		sessionsCommand(),
-		whoamiCommand(),
-		modelsCommand(),
-		serveCommand(),
+		loginCommand(appConfig),
+		importCommand(appConfig),
+		logoutCommand(appConfig),
+		sessionsCommand(appConfig),
+		whoamiCommand(appConfig),
+		modelsCommand(appConfig),
+		serveCommand(appConfig),
 	)
 
 	// Disable cobra's help subcommand so `help` is not a valid command.
