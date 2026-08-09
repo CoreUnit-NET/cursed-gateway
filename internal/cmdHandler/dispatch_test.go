@@ -3,6 +3,7 @@ package cmdHandler
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestDispatchVersionAndStubs(t *testing.T) {
 		ShowVersion: true,
 		Host:        "127.0.0.1",
 		Port:        8080,
-		AuthPath:    "./data/data.json",
+		AuthPath:    filepath.Join(t.TempDir(), "data.json"),
 		LogLevel:    "info",
 		LogFormat:   "text",
 	}, "Demo", "1.2.3", "abc", rt)
@@ -30,14 +31,18 @@ func TestDispatchVersionAndStubs(t *testing.T) {
 	}
 
 	err = Dispatch(context.Background(), &settings.Settings{
-		Command:   config.CommandModels,
-		Host:      "127.0.0.1",
-		Port:      8080,
-		AuthPath:  "./data/data.json",
-		LogLevel:  "info",
-		LogFormat: "text",
+		Command:    config.CommandModels,
+		Host:       "127.0.0.1",
+		Port:       8080,
+		AuthPath:   filepath.Join(t.TempDir(), "data.json"),
+		MaxRetries: 1,
+		LogLevel:   "info",
+		LogFormat:  "text",
 	}, "Demo", "1.2.3", "abc", rt)
-	if err == nil || !strings.Contains(err.Error(), "not implemented") {
+	if err == nil {
+		t.Fatal("expected models error for empty auth store")
+	}
+	if !strings.Contains(err.Error(), "no sessions") {
 		t.Fatalf("models err = %v", err)
 	}
 }

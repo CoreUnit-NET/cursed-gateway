@@ -1,5 +1,5 @@
 package completion_api
 
 /*
-POST /v1/chat/completions — streaming (SSE) chat completions.
+Streaming chat completions live in chatHandler.go (streamChat).
 */
