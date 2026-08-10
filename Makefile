@@ -165,6 +165,7 @@ run: ##@ runs the main.go file using go run
 build: ##@ uses go to build the app with build args
 	@touch .env
 	go build \
+		-buildvcs=false \
 		-ldflags=$(PROJECT_BUILD_ARGS) \
 		-o bin
 	@chmod +x bin

@@ -1,4 +1,7 @@
 [build]
-  cmd = "make -s init"
-  bin = "bin"
-
+  cmd = "make -s build"
+  entrypoint = "./bin"
+  args_bin = ["serve"]
+  exclude_dir = ["tmp", ".tmp", "data", "context", "bin"]
+  poll = true
+  poll_interval = 500
