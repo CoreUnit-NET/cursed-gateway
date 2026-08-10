@@ -9,6 +9,7 @@ work. They do not parse flags; config/settings already did that.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -146,7 +147,8 @@ func Logout(ctx context.Context, s *settings.Settings, rt *Runtime) error {
 	return nil
 }
 
-// Sessions lists stored sessions; with --check, attempts a refresh/access ensure.
+// Sessions lists stored sessions; with --check, validates against Cursor.
+// Statuses with --check: valid | invalid | error: <message> (README).
 func Sessions(ctx context.Context, s *settings.Settings, rt *Runtime) error {
 	store, err := rt.openStore(s.AuthPath)
 	if err != nil {
@@ -160,13 +162,8 @@ func Sessions(ctx context.Context, s *settings.Settings, rt *Runtime) error {
 	for _, a := range list {
 		status := "local"
 		if s.SessionsCheck {
-			_, err := store.EnsureAccess(ctx, a.ID)
-			switch {
-			case err == nil:
-				status = "valid"
-			default:
-				status = "error: " + err.Error()
-			}
+			_, err := store.CheckAccess(ctx, a.ID)
+			status = sessionCheckStatus(err)
 			// reload after possible refresh
 			if updated, getErr := store.Get(a.ID); getErr == nil {
 				a = updated
@@ -180,6 +177,17 @@ func Sessions(ctx context.Context, s *settings.Settings, rt *Runtime) error {
 			a.ID, a.Tier, sub, a.ExpiresAt, status)
 	}
 	return nil
+}
+
+func sessionCheckStatus(err error) string {
+	if err == nil {
+		return "valid"
+	}
+	if errors.Is(err, cursor_account_sdk.ErrRefreshRejected) ||
+		errors.Is(err, cursor_account_sdk.ErrMissingRefreshToken) {
+		return "invalid"
+	}
+	return "error: " + err.Error()
 }
 
 // Whoami prints local identity metadata for stored sessions.
