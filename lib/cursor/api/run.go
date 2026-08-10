@@ -20,13 +20,160 @@ type StreamEvent struct {
 	Text       string
 	Thinking   bool
 	TurnEnded  bool
+	ToolCall   *PendingExec
 	Err        error
 	HTTPStatus int
 }
 
+// RunControl owns a live AgentService/Run stream that can pause for tool results.
+type RunControl struct {
+	Events <-chan StreamEvent
+
+	writeMu    sync.Mutex
+	writeFrame func(*cursorProto.AgentClientMessage) error
+	cancel     context.CancelFunc
+	pw         *io.PipeWriter
+	pending    []PendingExec
+	preface    []StreamEvent // events pushed back by tool-call drains
+	mu         sync.Mutex
+}
+
+// Recv returns the next stream event, preferring any unread preface events.
+func (r *RunControl) Recv() (StreamEvent, bool) {
+	if r == nil {
+		return StreamEvent{}, false
+	}
+	r.mu.Lock()
+	if len(r.preface) > 0 {
+		ev := r.preface[0]
+		r.preface = r.preface[1:]
+		r.mu.Unlock()
+		return ev, true
+	}
+	r.mu.Unlock()
+	ev, ok := <-r.Events
+	return ev, ok
+}
+
+// TryRecv returns a buffered/preface event without blocking.
+func (r *RunControl) TryRecv() (StreamEvent, bool) {
+	if r == nil {
+		return StreamEvent{}, false
+	}
+	r.mu.Lock()
+	if len(r.preface) > 0 {
+		ev := r.preface[0]
+		r.preface = r.preface[1:]
+		r.mu.Unlock()
+		return ev, true
+	}
+	r.mu.Unlock()
+	select {
+	case ev, ok := <-r.Events:
+		if !ok {
+			return StreamEvent{}, false
+		}
+		return ev, true
+	default:
+		return StreamEvent{}, false
+	}
+}
+
+// Unread pushes an event so the next Recv observes it first (FIFO among unread).
+func (r *RunControl) Unread(ev StreamEvent) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.preface = append(r.preface, ev)
+}
+
+// Pending returns a copy of mcpArgs waiting for OpenAI tool results.
+func (r *RunControl) Pending() []PendingExec {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]PendingExec, len(r.pending))
+	copy(out, r.pending)
+	return out
+}
+
+// SubmitMcpResults writes mcpResult frames for parked pending execs and clears them.
+func (r *RunControl) SubmitMcpResults(results []ToolResultInfo) error {
+	if r == nil {
+		return fmt.Errorf("run control is nil")
+	}
+	r.mu.Lock()
+	pending := append([]PendingExec(nil), r.pending...)
+	r.pending = nil
+	r.mu.Unlock()
+
+	byID := map[string]string{}
+	for _, res := range results {
+		byID[res.ToolCallID] = res.Content
+	}
+	for _, pe := range pending {
+		content, ok := byID[pe.ToolCallID]
+		var mcp *cursorProto.McpResult
+		if ok {
+			mcp = EncodeMcpSuccess(content)
+		} else {
+			mcp = EncodeMcpError("Tool result not provided")
+		}
+		msg := &cursorProto.AgentClientMessage{
+			Message: &cursorProto.AgentClientMessage_ExecClientMessage{
+				ExecClientMessage: &cursorProto.ExecClientMessage{
+					Id:     pe.ExecMsgID,
+					ExecId: pe.ExecID,
+					Message: &cursorProto.ExecClientMessage_McpResult{
+						McpResult: mcp,
+					},
+				},
+			},
+		}
+		if err := r.writeFrame(msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Close cancels the run and closes the request pipe.
+func (r *RunControl) Close() {
+	if r == nil {
+		return
+	}
+	if r.cancel != nil {
+		r.cancel()
+	}
+	if r.pw != nil {
+		_ = r.pw.Close()
+	}
+}
+
+func (r *RunControl) trackPending(pe PendingExec) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pending = append(r.pending, pe)
+}
+
 // RunChat opens AgentService/Run, handles KV/heartbeats, and emits text events.
+// MCP tool calls without a bridge callback get an immediate error reply.
 // The returned channel is closed when the run finishes.
 func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPayload) (<-chan StreamEvent, error) {
+	rc, err := c.StartRun(ctx, accessToken, payload, false)
+	if err != nil {
+		return nil, err
+	}
+	return rc.Events, nil
+}
+
+// StartRun opens AgentService/Run. When bridgeTools is true, mcpArgs emit ToolCall
+// events and the HTTP layer must park the RunControl and later SubmitMcpResults.
+func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunPayload, bridgeTools bool) (*RunControl, error) {
 	if payload == nil || len(payload.RequestBytes) == 0 {
 		return nil, fmt.Errorf("run payload is empty")
 	}
@@ -35,9 +182,17 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 		origin = c.baseURL()
 	}
 
+	// Detach from the inbound HTTP request cancel so park/resume across tool
+	// turns keeps the Connect stream alive after the OpenAI response ends.
+	parent := ctx
+	if bridgeTools {
+		parent = context.WithoutCancel(ctx)
+	}
+	runCtx, cancel := context.WithCancel(parent)
 	pr, pw := io.Pipe()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, origin+pathAgentRun, pr)
+	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, origin+pathAgentRun, pr)
 	if err != nil {
+		cancel()
 		_ = pw.Close()
 		return nil, err
 	}
@@ -60,18 +215,21 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 
 	// Write initial run frame immediately so the request is not empty.
 	if _, err := pw.Write(FrameConnect(payload.RequestBytes, flagRaw)); err != nil {
+		cancel()
 		_ = pw.CloseWithError(err)
 		return nil, err
 	}
 
 	var dr doResult
 	select {
-	case <-ctx.Done():
-		_ = pw.CloseWithError(ctx.Err())
-		return nil, ctx.Err()
+	case <-runCtx.Done():
+		cancel()
+		_ = pw.CloseWithError(runCtx.Err())
+		return nil, runCtx.Err()
 	case dr = <-done:
 	}
 	if dr.err != nil {
+		cancel()
 		_ = pw.Close()
 		return nil, dr.err
 	}
@@ -79,24 +237,29 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 		_ = res.Body.Close()
+		cancel()
 		_ = pw.Close()
 		return nil, classifyHTTP(res.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	out := make(chan StreamEvent, 32)
-	var writeMu sync.Mutex
-	writeFrame := func(msg *cursorProto.AgentClientMessage) error {
+	rc := &RunControl{
+		Events: out,
+		cancel: cancel,
+		pw:     pw,
+	}
+	rc.writeFrame = func(msg *cursorProto.AgentClientMessage) error {
 		b, err := proto.Marshal(msg)
 		if err != nil {
 			return err
 		}
-		writeMu.Lock()
-		defer writeMu.Unlock()
+		rc.writeMu.Lock()
+		defer rc.writeMu.Unlock()
 		_, err = pw.Write(FrameConnect(b, flagRaw))
 		return err
 	}
 
-	hbCtx, hbCancel := context.WithCancel(ctx)
+	hbCtx, hbCancel := context.WithCancel(runCtx)
 	go func() {
 		t := time.NewTicker(heartbeatEvery)
 		defer t.Stop()
@@ -105,7 +268,7 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 			case <-hbCtx.Done():
 				return
 			case <-t.C:
-				_ = writeFrame(&cursorProto.AgentClientMessage{
+				_ = rc.writeFrame(&cursorProto.AgentClientMessage{
 					Message: &cursorProto.AgentClientMessage_ClientHeartbeat{
 						ClientHeartbeat: &cursorProto.ClientHeartbeat{},
 					},
@@ -114,11 +277,21 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 		}
 	}()
 
+	var onMcp func(PendingExec) error
+	if bridgeTools {
+		onMcp = func(pe PendingExec) error {
+			rc.trackPending(pe)
+			out <- StreamEvent{ToolCall: &pe}
+			return nil
+		}
+	}
+
 	go func() {
 		defer close(out)
 		defer hbCancel()
 		defer res.Body.Close()
 		defer pw.Close()
+		defer cancel()
 
 		idle := time.NewTimer(runIdleTime)
 		defer idle.Stop()
@@ -137,10 +310,15 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 
 			var fr frameResult
 			select {
-			case <-ctx.Done():
-				out <- StreamEvent{Err: ctx.Err(), HTTPStatus: res.StatusCode}
+			case <-runCtx.Done():
+				out <- StreamEvent{Err: runCtx.Err(), HTTPStatus: res.StatusCode}
 				return
 			case <-idle.C:
+				// Keep the Connect stream alive while parked waiting for OpenAI tool results.
+				if len(rc.Pending()) > 0 {
+					idle.Reset(runIdleTime)
+					continue
+				}
 				out <- StreamEvent{Err: fmt.Errorf("%w: idle timeout", ErrIncompleteRun), HTTPStatus: res.StatusCode}
 				return
 			case fr = <-ch:
@@ -185,17 +363,17 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 
 			switch m := serverMsg.Message.(type) {
 			case *cursorProto.AgentServerMessage_KvServerMessage:
-				if err := handleKV(m.KvServerMessage, payload.BlobStore, writeFrame); err != nil {
+				if err := handleKV(m.KvServerMessage, payload.BlobStore, rc.writeFrame); err != nil {
 					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
 					return
 				}
 			case *cursorProto.AgentServerMessage_ExecServerMessage:
-				if err := handleExec(m.ExecServerMessage, payload.Tools, writeFrame); err != nil {
+				if err := handleExec(m.ExecServerMessage, payload.Tools, rc.writeFrame, onMcp); err != nil {
 					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
 					return
 				}
 			case *cursorProto.AgentServerMessage_InteractionQuery:
-				if err := handleInteractionQuery(m.InteractionQuery, writeFrame); err != nil {
+				if err := handleInteractionQuery(m.InteractionQuery, rc.writeFrame); err != nil {
 					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
 					return
 				}
@@ -213,7 +391,7 @@ func (c *Client) RunChat(ctx context.Context, accessToken string, payload *RunPa
 		}
 	}()
 
-	return out, nil
+	return rc, nil
 }
 
 func interactionEvents(update *cursorProto.InteractionUpdate) (events []StreamEvent, turnEnded bool) {

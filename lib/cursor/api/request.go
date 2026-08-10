@@ -12,10 +12,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ChatMessage is a minimal OpenAI chat message.
+// ChatMessage is a minimal OpenAI chat message (tools-aware).
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
 // ConversationTurn is a prior user/assistant pair.
@@ -29,13 +31,15 @@ type ParsedChat struct {
 	SystemPrompt string
 	Turns        []ConversationTurn
 	UserText     string
+	ToolResults  []ToolResultInfo
 }
 
-// ParseChatMessages splits OpenAI messages into system / history / current user.
+// ParseChatMessages splits OpenAI messages into system / history / current user / tool results.
 func ParseChatMessages(messages []ChatMessage) ParsedChat {
 	var systems []string
 	var turns []ConversationTurn
 	var pendingUser string
+	var toolResults []ToolResultInfo
 
 	for _, m := range messages {
 		role := strings.ToLower(strings.TrimSpace(m.Role))
@@ -45,12 +49,18 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 			if text != "" {
 				systems = append(systems, text)
 			}
+		case "tool":
+			toolResults = append(toolResults, ToolResultInfo{
+				ToolCallID: strings.TrimSpace(m.ToolCallID),
+				Content:    m.Content,
+			})
 		case "user":
 			if pendingUser != "" {
 				turns = append(turns, ConversationTurn{UserText: pendingUser})
 			}
 			pendingUser = text
 		case "assistant":
+			// Skip tool_calls-only assistants with no text (continuation is via mcpResult).
 			if pendingUser != "" {
 				turns = append(turns, ConversationTurn{UserText: pendingUser, AssistantText: text})
 				pendingUser = ""
@@ -62,10 +72,19 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 	if system == "" {
 		system = "You are a helpful assistant."
 	}
+
+	userText := pendingUser
+	if userText == "" && len(toolResults) == 0 && len(turns) > 0 {
+		last := turns[len(turns)-1]
+		turns = turns[:len(turns)-1]
+		userText = last.UserText
+	}
+
 	return ParsedChat{
 		SystemPrompt: system,
 		Turns:        turns,
-		UserText:     pendingUser,
+		UserText:     userText,
+		ToolResults:  toolResults,
 	}
 }
 

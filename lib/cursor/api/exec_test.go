@@ -18,7 +18,7 @@ func TestHandleExecRequestContext(t *testing.T) {
 	}, tools, func(msg *cursorProto.AgentClientMessage) error {
 		got = msg
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,13 +43,60 @@ func TestHandleExecRejectsNativeRead(t *testing.T) {
 	}, nil, func(msg *cursorProto.AgentClientMessage) error {
 		got = msg
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rejected := got.GetExecClientMessage().GetReadResult().GetRejected()
 	if rejected == nil || rejected.GetPath() != "/tmp/x" || rejected.GetReason() == "" {
 		t.Fatalf("rejected = %#v", rejected)
+	}
+}
+
+func TestHandleExecMcpArgsBridge(t *testing.T) {
+	var pending *PendingExec
+	err := handleExec(&cursorProto.ExecServerMessage{
+		Id:     4,
+		ExecId: "exec-mcp",
+		Message: &cursorProto.ExecServerMessage_McpArgs{
+			McpArgs: &cursorProto.McpArgs{
+				Name:       "lookup",
+				ToolName:   "lookup",
+				ToolCallId: "call_1",
+			},
+		},
+	}, nil, func(msg *cursorProto.AgentClientMessage) error {
+		t.Fatal("bridge path should not write mcpResult")
+		return nil
+	}, func(pe PendingExec) error {
+		pending = &pe
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending == nil || pending.ToolCallID != "call_1" || pending.ToolName != "lookup" || pending.ExecID != "exec-mcp" {
+		t.Fatalf("pending = %#v", pending)
+	}
+}
+
+func TestHandleExecMcpArgsWithoutBridge(t *testing.T) {
+	var got *cursorProto.AgentClientMessage
+	err := handleExec(&cursorProto.ExecServerMessage{
+		Id:     5,
+		ExecId: "exec-mcp",
+		Message: &cursorProto.ExecServerMessage_McpArgs{
+			McpArgs: &cursorProto.McpArgs{ToolName: "lookup"},
+		},
+	}, nil, func(msg *cursorProto.AgentClientMessage) error {
+		got = msg
+		return nil
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetExecClientMessage().GetMcpResult().GetError() == nil {
+		t.Fatalf("expected mcp error, got %#v", got)
 	}
 }
 

@@ -10,8 +10,15 @@ const nativeToolRejectReason = "Tool not available in this environment. Use the 
 
 // handleExec replies to exec_server_message so AgentService/Run does not stall.
 // request_context returns the advertised MCP tool list (may be empty).
-// Native Cursor tools are rejected; MCP tool calls without a bridge get an error.
-func handleExec(msg *cursorProto.ExecServerMessage, tools []*cursorProto.McpToolDefinition, write func(*cursorProto.AgentClientMessage) error) error {
+// Native Cursor tools are rejected.
+// When onMcp is set, mcpArgs are surfaced for OpenAI tool_calls (no mcpResult yet).
+// When onMcp is nil, mcpArgs get an immediate error so CollectText cannot hang.
+func handleExec(
+	msg *cursorProto.ExecServerMessage,
+	tools []*cursorProto.McpToolDefinition,
+	write func(*cursorProto.AgentClientMessage) error,
+	onMcp func(PendingExec) error,
+) error {
 	if msg == nil {
 		return nil
 	}
@@ -36,23 +43,37 @@ func handleExec(msg *cursorProto.ExecServerMessage, tools []*cursorProto.McpTool
 
 	case *cursorProto.ExecServerMessage_McpArgs:
 		name := ""
+		toolCallID := ""
+		var argsMap map[string][]byte
 		if m.McpArgs != nil {
 			name = m.McpArgs.GetToolName()
 			if name == "" {
 				name = m.McpArgs.GetName()
 			}
+			toolCallID = m.McpArgs.GetToolCallId()
+			argsMap = m.McpArgs.GetArgs()
+		}
+		if toolCallID == "" {
+			toolCallID = newUUID()
+		}
+		decoded, err := DecodeMcpArgsMap(argsMap)
+		if err != nil {
+			decoded = "{}"
+		}
+		if onMcp != nil {
+			return onMcp(PendingExec{
+				ExecID:      msg.GetExecId(),
+				ExecMsgID:   msg.GetId(),
+				ToolCallID:  toolCallID,
+				ToolName:    name,
+				DecodedArgs: decoded,
+			})
 		}
 		return writeExecClient(msg, &cursorProto.ExecClientMessage{
 			Id:     msg.GetId(),
 			ExecId: msg.GetExecId(),
 			Message: &cursorProto.ExecClientMessage_McpResult{
-				McpResult: &cursorProto.McpResult{
-					Result: &cursorProto.McpResult_Error{
-						Error: &cursorProto.McpError{
-							Error: fmt.Sprintf("MCP tool %q is not available in this gateway yet", name),
-						},
-					},
-				},
+				McpResult: EncodeMcpError(fmt.Sprintf("MCP tool %q is not available in this gateway yet", name)),
 			},
 		}, write)
 
