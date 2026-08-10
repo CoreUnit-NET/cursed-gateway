@@ -11,7 +11,7 @@ func clearConfigEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"HOST", "PORT", "AUTH_PATH", "MAX_RETRIES", "COOLDOWN_MINS",
-		"PREFER_PRO", "LOG_LEVEL", "LOG_FORMAT",
+		"PREFER_PRO", "LOG_LEVEL", "LOG_FORMAT", "ENABLE_LOGIN",
 	} {
 		t.Setenv(key, "")
 	}
@@ -52,6 +52,9 @@ func TestParseConfigDefaults(t *testing.T) {
 	if cfg.LogFormat != "text" {
 		t.Fatalf("LogFormat = %q, want text", cfg.LogFormat)
 	}
+	if cfg.EnableLogin {
+		t.Fatal("expected EnableLogin false by default")
+	}
 }
 
 func TestParseConfigFlagsOverrideEnv(t *testing.T) {
@@ -67,6 +70,7 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	t.Setenv("PREFER_PRO", "false")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("LOG_FORMAT", "json")
+	t.Setenv("ENABLE_LOGIN", "false")
 
 	os.Args = []string{
 		"cursed-gateway", "serve",
@@ -78,6 +82,7 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 		"--prefer-pro=true",
 		"-l", "warn",
 		"--log-format", "text",
+		"--enable-login=true",
 	}
 	cfg, err := ParseConfig("Demo", "demo")
 	if err != nil {
@@ -108,6 +113,9 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	if cfg.LogFormat != "text" {
 		t.Fatalf("LogFormat = %q, want flag to win", cfg.LogFormat)
 	}
+	if !cfg.EnableLogin {
+		t.Fatal("expected EnableLogin true from flag")
+	}
 }
 
 func TestParseConfigEnvOnly(t *testing.T) {
@@ -120,6 +128,7 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	t.Setenv("AUTH_PATH", "./data/auth.json")
 	t.Setenv("PREFER_PRO", "false")
 	t.Setenv("LOG_LEVEL", "error")
+	t.Setenv("ENABLE_LOGIN", "true")
 
 	os.Args = []string{"cursed-gateway", "serve"}
 	cfg, err := ParseConfig("Demo", "demo")
@@ -141,6 +150,9 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	}
 	if cfg.LogLevel != "error" {
 		t.Fatalf("LogLevel = %q, want env", cfg.LogLevel)
+	}
+	if !cfg.EnableLogin {
+		t.Fatal("expected EnableLogin true from env")
 	}
 }
 

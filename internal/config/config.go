@@ -42,6 +42,8 @@ type AppConfig struct {
 	PreferPro    bool
 	LogLevel     string
 	LogFormat    string
+	// EnableLogin registers GET /login (307 to Cursor Deep Control) on serve.
+	EnableLogin bool
 
 	// SessionsCheck is set by `sessions --check`.
 	SessionsCheck bool
@@ -61,6 +63,7 @@ func defaultAppConfig() *AppConfig {
 		PreferPro:    true,
 		LogLevel:     "info",
 		LogFormat:    "text",
+		EnableLogin:  false,
 
 		ImportPath: "./data/auth.json",
 	}
@@ -203,6 +206,11 @@ func loadEnvVars(appConfig *AppConfig) error {
 	}); err != nil {
 		return err
 	}
+	if err := envIsBool("ENABLE_LOGIN", func(value bool) {
+		appConfig.EnableLogin = value
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -217,6 +225,7 @@ func applyServeFlags(appConfig *AppConfig, cmd *cobra.Command) {
 	cmd.PersistentFlags().BoolVar(&appConfig.PreferPro, "prefer-pro", appConfig.PreferPro, "prefer Pro accounts over Free (PREFER_PRO)")
 	cmd.PersistentFlags().StringVarP(&appConfig.LogLevel, "log-level", "l", appConfig.LogLevel, "log level: debug, info, warn, or error (LOG_LEVEL)")
 	cmd.PersistentFlags().StringVar(&appConfig.LogFormat, "log-format", appConfig.LogFormat, "log format: text or json (LOG_FORMAT)")
+	cmd.PersistentFlags().BoolVar(&appConfig.EnableLogin, "enable-login", appConfig.EnableLogin, "opt-in: expose GET /login as 307 redirect to Cursor OAuth (ENABLE_LOGIN)")
 }
 
 // ParseConfig loads env defaults, parses CLI flags/subcommands, and returns the app config.

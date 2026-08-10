@@ -35,6 +35,7 @@ type Settings struct {
 	PreferPro    bool
 	LogLevel     string
 	LogFormat    string
+	EnableLogin  bool
 }
 
 // FromAppConfig validates cfg and returns Settings.
@@ -56,6 +57,7 @@ func FromAppConfig(cfg *config.AppConfig) (*Settings, error) {
 		PreferPro:     cfg.PreferPro,
 		LogLevel:      strings.ToLower(strings.TrimSpace(cfg.LogLevel)),
 		LogFormat:     strings.ToLower(strings.TrimSpace(cfg.LogFormat)),
+		EnableLogin:   cfg.EnableLogin,
 	}
 	if err := s.validate(); err != nil {
 		return nil, err
