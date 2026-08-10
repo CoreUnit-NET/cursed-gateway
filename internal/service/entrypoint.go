@@ -100,6 +100,18 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 	mux := http.NewServeMux()
 	handler.Mount(mux)
 
+	var pendingLogin *login_session.PendingLogin
+	if s.EnableLogin {
+		pendingLogin = &login_session.PendingLogin{
+			Store:  store,
+			Client: client,
+			Log:    log,
+			Parent: ctx,
+		}
+		mux.Handle("GET /login", pendingLogin)
+		log.Info("http login endpoint enabled", "path", "/login")
+	}
+
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	httpSrv := &http.Server{
 		Addr:              addr,
@@ -109,7 +121,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", addr, "auth", store.Path())
+		log.Info("listening", "addr", addr, "auth", store.Path(), "enable_login", s.EnableLogin)
 		err := httpSrv.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
@@ -120,12 +132,18 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 
 	select {
 	case <-ctx.Done():
+		if pendingLogin != nil {
+			pendingLogin.Stop()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)
 		refreshCancel()
 		return <-errCh
 	case err := <-errCh:
+		if pendingLogin != nil {
+			pendingLogin.Stop()
+		}
 		refreshCancel()
 		return err
 	}
