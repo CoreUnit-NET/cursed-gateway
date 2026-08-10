@@ -4,9 +4,10 @@ import cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
 
 // ChatCompletionRequest is the OpenAI chat completions body we accept.
 type ChatCompletionRequest struct {
-	Model    string                       `json:"model"`
-	Messages []cursor_api_sdk.ChatMessage `json:"messages"`
-	Stream   bool                         `json:"stream"`
+	Model    string                         `json:"model"`
+	Messages []cursor_api_sdk.ChatMessage   `json:"messages"`
+	Stream   bool                           `json:"stream"`
+	Tools    []cursor_api_sdk.OpenAIToolDef `json:"tools,omitempty"`
 }
 
 type modelListResponse struct {
@@ -41,13 +42,25 @@ type chatCompletionChoice struct {
 }
 
 type chatMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string                          `json:"role"`
+	Content   string                          `json:"content"`
+	ToolCalls []cursor_api_sdk.OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
 type chatDelta struct {
-	Role    string `json:"role,omitempty"`
-	Content string `json:"content,omitempty"`
+	Role      string           `json:"role,omitempty"`
+	Content   string           `json:"content,omitempty"`
+	ToolCalls []streamToolCall `json:"tool_calls,omitempty"`
+}
+
+type streamToolCall struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Function *struct {
+		Name      string `json:"name,omitempty"`
+		Arguments string `json:"arguments,omitempty"`
+	} `json:"function,omitempty"`
 }
 
 type usage struct {

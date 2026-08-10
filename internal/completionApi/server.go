@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	account_pool "github.com/CoreUnit-NET/cursed-gateway/internal/accountPool"
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
@@ -21,6 +22,9 @@ type Server struct {
 	API     *cursor_api_sdk.Client
 	Log     *slog.Logger
 	MaxBody int64
+
+	bridgeOnce    sync.Once
+	activeBridges *bridgeRegistry
 }
 
 func (s *Server) log() *slog.Logger {
