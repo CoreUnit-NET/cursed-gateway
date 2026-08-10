@@ -256,6 +256,15 @@ func (s *Store) Remove(id string) (removed int, err error) {
 
 // EnsureAccess refreshes the account if needed and persists the result.
 func (s *Store) EnsureAccess(ctx context.Context, id string) (*cursor_account_sdk.Account, error) {
+	return s.ensureAccess(ctx, id, false)
+}
+
+// CheckAccess always validates against Cursor by refreshing, then persists.
+func (s *Store) CheckAccess(ctx context.Context, id string) (*cursor_account_sdk.Account, error) {
+	return s.ensureAccess(ctx, id, true)
+}
+
+func (s *Store) ensureAccess(ctx context.Context, id string, forceRefresh bool) (*cursor_account_sdk.Account, error) {
 	s.mu.Lock()
 	var acc *cursor_account_sdk.Account
 	for _, r := range s.file.Sessions {
@@ -270,7 +279,7 @@ func (s *Store) EnsureAccess(ctx context.Context, id string) (*cursor_account_sd
 	}
 
 	now := time.Now()
-	if !acc.NeedsRefresh(now) {
+	if !forceRefresh && !acc.NeedsRefresh(now) {
 		return acc, nil
 	}
 	creds, err := s.client.RefreshToken(ctx, acc.Refresh)
