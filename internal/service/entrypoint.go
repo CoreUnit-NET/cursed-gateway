@@ -5,7 +5,7 @@ Package service is the app glue layer started from main.
 
 It wires settings, login_session refresh loops, and completion_api for
 long-lived serve, and can coordinate one-shot flows that need shared
-init. cmdHandler calls into this package; it does not parse CLI flags.
+init. cmd_handler calls into this package; it does not parse CLI flags.
 */
 
 import (
@@ -38,31 +38,11 @@ func PrintModels(ctx context.Context, s *settings.Settings, out io.Writer, clien
 	}
 	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s))
 	api := &cursor_api_sdk.Client{}
+	srv := completion_api.NewServer(pool, api, nil)
 
-	cands := pool.PickCandidates()
-	if len(cands) == 0 {
-		return fmt.Errorf("no sessions in auth store; run login or import first")
-	}
-
-	var models []cursor_api_sdk.Model
-	var last error
-	for _, acc := range cands {
-		ready, err := pool.EnsureAccess(ctx, acc.ID)
-		if err != nil {
-			last = err
-			continue
-		}
-		models, err = api.ListModels(ctx, ready.Access)
-		if err != nil {
-			last = err
-			continue
-		}
-		pool.MarkUsed(acc.ID)
-		last = nil
-		break
-	}
-	if last != nil {
-		return last
+	models, err := srv.ListModels(ctx)
+	if err != nil {
+		return err
 	}
 
 	for _, m := range models {
@@ -91,11 +71,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 
 	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s))
 	api := &cursor_api_sdk.Client{}
-	srvAPI := &completion_api.Server{
-		Pool: pool,
-		API:  api,
-		Log:  log,
-	}
+	srvAPI := completion_api.NewServer(pool, api, log)
 	handler := &completion_api.Handler{Server: srvAPI}
 	mux := http.NewServeMux()
 	handler.Mount(mux)
