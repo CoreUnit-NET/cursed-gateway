@@ -1,4 +1,4 @@
-package cmdHandler
+package cmd_handler
 
 import (
 	"bytes"

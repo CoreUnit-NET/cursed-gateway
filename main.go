@@ -3,7 +3,7 @@ package main
 /*
 cursed-gateway entrypoint.
 
-Load .env, parse config/settings, then dispatch cmdHandler subcommands
+Load .env, parse config/settings, then dispatch cmd_handler subcommands
 (login, logout, sessions, whoami, models, serve, import). Long-lived
 serve work is delegated to internal/service.
 */
@@ -16,7 +16,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/CoreUnit-NET/cursed-gateway/internal/cmdHandler"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/cmd_handler"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/config"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	"github.com/joho/godotenv"
@@ -50,7 +50,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := cmdHandler.Dispatch(ctx, s, DisplayName, Version, Commit, nil); err != nil {
+	if err := cmd_handler.Dispatch(ctx, s, DisplayName, Version, Commit, nil); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
