@@ -31,9 +31,9 @@ var requiredSymbols = []string{
 	"AgentService",
 }
 
-var (
-	packageRE   = regexp.MustCompile(`(?m)^\s*package\s+([a-zA-Z0-9_.]+)\s*;`)
-	goPackageRE = regexp.MustCompile(`(?m)^\s*option\s+go_package\s*=\s*"[^"]*"\s*;`)
+const (
+	packageREPattern   = `(?m)^\s*package\s+([a-zA-Z0-9_.]+)\s*;`
+	goPackageREPattern = `(?m)^\s*option\s+go_package\s*=\s*"[^"]*"\s*;`
 )
 
 // Run skips work when descriptor inputs match the last successful generation.
@@ -188,12 +188,21 @@ func countProtoFiles(dir string) (int, error) {
 }
 
 func selectAndRewrite(rawDir, selectedDir string) ([]string, error) {
+	packageRE, err := regexp.Compile(packageREPattern)
+	if err != nil {
+		return nil, fmt.Errorf("package regexp: %w", err)
+	}
+	goPackageRE, err := regexp.Compile(goPackageREPattern)
+	if err != nil {
+		return nil, fmt.Errorf("go_package regexp: %w", err)
+	}
+
 	_ = os.RemoveAll(selectedDir)
 	if err := os.MkdirAll(selectedDir, 0o755); err != nil {
 		return nil, err
 	}
 	var kept []string
-	err := filepath.WalkDir(rawDir, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(rawDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -219,7 +228,7 @@ func selectAndRewrite(rawDir, selectedDir string) ([]string, error) {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(dest, injectGoPackage(data, pkg, rel), 0o644); err != nil {
+		if err := os.WriteFile(dest, injectGoPackage(data, pkg, rel, goPackageRE), 0o644); err != nil {
 			return err
 		}
 		kept = append(kept, rel)
@@ -245,7 +254,7 @@ func wantPackage(pkg string, data []byte) bool {
 	return false
 }
 
-func injectGoPackage(data []byte, pkg, rel string) []byte {
+func injectGoPackage(data []byte, pkg, rel string, goPackageRE *regexp.Regexp) []byte {
 	goPkg := goPackageFor(pkg, rel)
 	optionLine := fmt.Sprintf("option go_package = %q;\n", goPkg)
 	if goPackageRE.Match(data) {
@@ -309,7 +318,11 @@ func validateGenerated(protoOut string) error {
 	if err != nil {
 		return fmt.Errorf("validation failed: expected %s: %w", agentGo, err)
 	}
-	if !regexp.MustCompile(`(?m)^package\s+cursorProto\s*$`).Match(data) {
+	pkgRE, err := regexp.Compile(`(?m)^package\s+cursorProto\s*$`)
+	if err != nil {
+		return fmt.Errorf("validation failed: package regexp: %w", err)
+	}
+	if !pkgRE.Match(data) {
 		return fmt.Errorf("validation failed: %s must declare package cursorProto", agentGo)
 	}
 	pbFiles := []string{agentGo}
@@ -339,7 +352,10 @@ func validateGenerated(protoOut string) error {
 }
 
 func symbolPresent(files []string, sym string) bool {
-	reType := regexp.MustCompile(`type\s+` + regexp.QuoteMeta(sym) + `\b`)
+	reType, err := regexp.Compile(`type\s+` + regexp.QuoteMeta(sym) + `\b`)
+	if err != nil {
+		return false
+	}
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {

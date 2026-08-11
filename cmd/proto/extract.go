@@ -119,7 +119,12 @@ func writeFileDescProtos(path, rawDir string) (int, error) {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return wrote, err
 		}
-		if err := os.WriteFile(dest+".fd", mustMarshalFD(&fd), 0o644); err != nil {
+		rawFD, err := marshalFD(&fd)
+		if err != nil {
+			fmt.Printf("  warning: skip %s: marshal: %v\n", name, err)
+			continue
+		}
+		if err := os.WriteFile(dest+".fd", rawFD, 0o644); err != nil {
 			fmt.Printf("  warning: skip %s: %v\n", name, err)
 			continue
 		}
@@ -138,12 +143,12 @@ func sanitizeProtoPath(name string) string {
 	return name
 }
 
-func mustMarshalFD(fd *descriptorpb.FileDescriptorProto) []byte {
+func marshalFD(fd *descriptorpb.FileDescriptorProto) ([]byte, error) {
 	b, err := proto.Marshal(fd)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return b
+	return b, nil
 }
 
 // extractFileDescBlobs finds @bufbuild fileDesc("b64"[, "b64"...]) payloads.
