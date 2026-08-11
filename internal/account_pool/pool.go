@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	login_session "github.com/CoreUnit-NET/cursed-gateway/internal/loginSession"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 )
 

@@ -10,21 +10,43 @@ import (
 	"net/http"
 	"sync"
 
-	account_pool "github.com/CoreUnit-NET/cursed-gateway/internal/accountPool"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/account_pool"
+	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
 )
 
 const maxBodyBytes = 10 << 20 // 10 MiB
 
+// AccountPool is the account rotation surface Server needs.
+// *account_pool.Pool satisfies this interface.
+type AccountPool interface {
+	PickCandidates() []*cursor_account_sdk.Account
+	EnsureAccess(ctx context.Context, id string) (*cursor_account_sdk.Account, error)
+	MarkUsed(id string)
+	MarkRateLimited(id string)
+}
+
+// UpstreamAPI is the Cursor upstream surface Server needs.
+// *cursor_api_sdk.Client satisfies this interface.
+type UpstreamAPI interface {
+	ListModels(ctx context.Context, accessToken string) ([]cursor_api_sdk.Model, error)
+	StartRun(ctx context.Context, accessToken string, payload *cursor_api_sdk.RunPayload, bridgeTools bool) (*cursor_api_sdk.RunControl, error)
+}
+
 // Server holds shared dependencies for OpenAI handlers.
 type Server struct {
-	Pool    *account_pool.Pool
-	API     *cursor_api_sdk.Client
+	Pool    AccountPool
+	API     UpstreamAPI
 	Log     *slog.Logger
 	MaxBody int64
 
 	bridgeOnce    sync.Once
 	activeBridges *bridgeRegistry
+}
+
+// NewServer wires a concrete pool and API client for handlers / CLI reuse.
+func NewServer(pool *account_pool.Pool, api *cursor_api_sdk.Client, log *slog.Logger) *Server {
+	return &Server{Pool: pool, API: api, Log: log}
 }
 
 func (s *Server) log() *slog.Logger {
@@ -42,6 +64,9 @@ func (s *Server) maxBody() int64 {
 }
 
 func (s *Server) withAccess(ctx context.Context, fn func(access string) error) error {
+	if s == nil || s.Pool == nil {
+		return fmt.Errorf("account pool is not configured")
+	}
 	cands := s.Pool.PickCandidates()
 	if len(cands) == 0 {
 		return fmt.Errorf("no sessions in auth store; run login or import first")
@@ -81,6 +106,23 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 		last = fmt.Errorf("all accounts failed")
 	}
 	return last
+}
+
+// ListModels fetches Cursor models using the account pool.
+func (s *Server) ListModels(ctx context.Context) ([]cursor_api_sdk.Model, error) {
+	if s == nil || s.API == nil {
+		return nil, fmt.Errorf("upstream API is not configured")
+	}
+	var models []cursor_api_sdk.Model
+	err := s.withAccess(ctx, func(access string) error {
+		m, err := s.API.ListModels(ctx, access)
+		if err != nil {
+			return err
+		}
+		models = m
+		return nil
+	})
+	return models, err
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -15,7 +15,7 @@ import (
 	"os"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/config"
-	login_session "github.com/CoreUnit-NET/cursed-gateway/internal/loginSession"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/service"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"

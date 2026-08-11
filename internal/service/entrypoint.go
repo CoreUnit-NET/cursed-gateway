@@ -3,7 +3,7 @@ package service
 /*
 Package service is the app glue layer started from main.
 
-It wires settings, login_session refresh loops, and completionApi for
+It wires settings, login_session refresh loops, and completion_api for
 long-lived serve, and can coordinate one-shot flows that need shared
 init. cmdHandler calls into this package; it does not parse CLI flags.
 */
@@ -19,9 +19,9 @@ import (
 	"strconv"
 	"time"
 
-	account_pool "github.com/CoreUnit-NET/cursed-gateway/internal/accountPool"
-	completion_api "github.com/CoreUnit-NET/cursed-gateway/internal/completionApi"
-	login_session "github.com/CoreUnit-NET/cursed-gateway/internal/loginSession"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/account_pool"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/completion_api"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
