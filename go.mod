@@ -1,6 +1,6 @@
 module github.com/CoreUnit-NET/cursed-gateway
 
-go 1.25.0
+go 1.26.1
 
 require (
 	github.com/joho/godotenv v1.5.1
