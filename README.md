@@ -205,13 +205,16 @@ Proto toolchain flags live under [Proto Pipeline](#proto-pipeline).
 
 ### Proto Pipeline
 
-Used by the `cli/proto` toolchain only—not by `serve`.
+Auxiliary toolchain under `cmd/proto` (not the gateway binary). Regenerates
+`lib/cursorProto` from a local Cursor agent; used only for development /
+codegen—not by `serve`. Run via `make proto` / `go run ./cmd/proto`.
 
 Flags and environment variables:
 
-- `CACHE_DIR` or `--cache-dir`: local cache for Cursor agent binaries and proto artifacts, defaults to `./.cache`
-- `PROTO_OUT` or `--proto-out`: generated Go protobuf output directory, defaults to `./pkg/generated`
-- `RELEASE_CHANNEL` or `--channel`: Cursor agent channel (`prod`, `staging`, `experimental`, `rc`), defaults to `prod`
+- `PROTO_CACHE_DIR` or `--cache-dir`: local cache for tools and descriptor artifacts, defaults to `./.tmp/proto`
+- `PROTO_OUT` or `--proto-out`: generated Go protobuf output directory, defaults to `./lib/cursorProto`
+- `PROTO_AGENT_BIN` or `--agent-bin`: local cursor-agent path (versions dir, share root, or single file)
+- `--force`: ignore input fingerprint cache and regenerate
 
 </details>
 
