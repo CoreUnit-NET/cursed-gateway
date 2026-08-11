@@ -25,10 +25,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: wangyoucao577/go-release-action@v1
         with:
-          binary_name: "cursed-gateway"
-          goversion: "1.25"
+          binary_name: ${{ github.event.repository.name }}
+          goversion: latest
           extra_files: LICENSE README.md CONTRIBUTING.md
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
           goarch: ${{ matrix.goarch }}
-          ldflags: "-X main.Version=${{ github.ref_name }} -X main.Commit=${{ github.sha }} -X main.DisplayName=cursed-gateway -X main.ShortName=cgateway"
+          ldflags: "-X main.Version=${{ github.ref_name }} -X main.Commit=${{ github.sha }}"
