@@ -2,7 +2,7 @@
 
 ![CI/CD](https://github.com/CoreUnit-NET/cursed-gateway/actions/workflows/go-bin-release.yml/badge.svg)
 ![CI/CD](https://github.com/CoreUnit-NET/cursed-gateway/actions/workflows/go-test-build.yml/badge.svg)  
-![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)
 ![](https://img.shields.io/badge/dynamic/json?color=green&label=watchers&query=watchers&suffix=x&url=https%3A%2F%2Fapi.github.com%2Frepos%2FCoreUnit-NET%2Fcursed-gateway)
 ![](https://img.shields.io/badge/dynamic/json?color=yellow&label=stars&query=stargazers_count&suffix=x&url=https%3A%2F%2Fapi.github.com%2Frepos%2FCoreUnit-NET%2Fcursed-gateway)
 ![](https://img.shields.io/badge/dynamic/json?color=navy&label=forks&query=forks&suffix=x&url=https%3A%2F%2Fapi.github.com%2Frepos%2FCoreUnit-NET%2Fcursed-gateway)
