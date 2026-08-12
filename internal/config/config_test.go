@@ -210,6 +210,7 @@ func TestParseConfigSubcommands(t *testing.T) {
 		check   bool
 		imp     string
 	}{
+		{[]string{"cursed-gateway"}, CommandServe, false, "./data/auth.json"},
 		{[]string{"cursed-gateway", "login"}, CommandLogin, false, "./data/auth.json"},
 		{[]string{"cursed-gateway", "sessions", "--check"}, CommandSessions, true, "./data/auth.json"},
 		{[]string{"cursed-gateway", "import", "/tmp/auth.json"}, CommandImport, false, "/tmp/auth.json"},

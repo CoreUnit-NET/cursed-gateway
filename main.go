@@ -4,8 +4,8 @@ package main
 cursed-gateway entrypoint.
 
 Load .env, parse config/settings, then dispatch cmd_handler subcommands
-(login, logout, sessions, whoami, models, serve, import). Long-lived
-serve work is delegated to internal/service.
+(login, logout, sessions, whoami, models, serve, import). Bare root
+defaults to serve. Long-lived serve work is delegated to internal/service.
 */
 
 import (

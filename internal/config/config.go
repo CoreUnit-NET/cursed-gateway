@@ -29,7 +29,8 @@ const (
 type AppConfig struct {
 	ShowVersion bool
 
-	// Command is the selected subcommand name (see Command* constants), or empty for bare root.
+	// Command is the selected subcommand name (see Command* constants).
+	// Bare root defaults to CommandServe.
 	Command string
 	// Args are positional args passed to the selected subcommand.
 	Args []string
@@ -240,7 +241,8 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 		Use:   shortName,
 		Short: short,
 		Run: func(cmd *cobra.Command, args []string) {
-			// Bare root with no subcommand: leave Command empty so main can print help.
+			// Bare root with no subcommand runs serve.
+			appConfig.Command = CommandServe
 			appConfig.Args = args
 		},
 	}

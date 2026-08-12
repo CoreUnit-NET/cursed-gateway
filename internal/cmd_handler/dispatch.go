@@ -66,8 +66,9 @@ func Dispatch(ctx context.Context, s *settings.Settings, displayName, version, c
 	}
 
 	switch s.Command {
-	case "":
-		return fmt.Errorf("no command selected; run with --help")
+	case "", config.CommandServe:
+		// Empty command is treated as serve (root default).
+		return Serve(ctx, s, rt)
 	case config.CommandLogin:
 		return Login(ctx, s, rt)
 	case config.CommandImport:
@@ -80,8 +81,6 @@ func Dispatch(ctx context.Context, s *settings.Settings, displayName, version, c
 		return Whoami(ctx, s, rt)
 	case config.CommandModels:
 		return Models(ctx, s, rt)
-	case config.CommandServe:
-		return Serve(ctx, s, rt)
 	default:
 		return fmt.Errorf("unknown command %q", s.Command)
 	}
