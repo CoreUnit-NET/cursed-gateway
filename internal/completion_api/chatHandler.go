@@ -80,27 +80,38 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	payload, err := cursor_api_sdk.BuildRunPayload(req.Model, parsed)
-	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	payload.Tools = mcpTools
 	h.Server.bridges().drop(bridgeKey)
 
 	bridgeTools := len(mcpTools) > 0
 	var text string
 	var calls []cursor_api_sdk.PendingExec
 	var parkedRC *cursor_api_sdk.RunControl
+	var modelID string
+	var resolvedSel cursor_api_sdk.ModelSelection
 	err = h.Server.withAccess(ctx, func(access string) error {
-		rc, err := h.Server.API.StartRun(ctx, access, payload, bridgeTools)
+		sel, err := h.Server.API.ResolveModelSelection(ctx, access, req.Model)
+		if err != nil {
+			h.Server.log().Warn("model selection resolve failed; using literal", "model", req.Model, "err", err)
+			sel = cursor_api_sdk.LiteralModelSelection(req.Model)
+		}
+		if sel.SupportsAgent != nil && !*sel.SupportsAgent {
+			h.Server.log().Warn("catalog marks model as non-agent", "model", sel.PublicID, "wire_model_id", sel.WireModelID)
+		}
+		payload, err := cursor_api_sdk.BuildRunPayloadSelection(sel, parsed)
 		if err != nil {
 			return err
+		}
+		payload.Tools = mcpTools
+		modelID = payload.ModelID
+		resolvedSel = sel
+		rc, err := h.Server.API.StartRun(ctx, access, payload, bridgeTools)
+		if err != nil {
+			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
 		t, c, err := consumeRun(rc, toolCallGrace)
 		if err != nil {
 			rc.Close()
-			return err
+			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
 		text, calls = t, c
 		if len(calls) > 0 {
@@ -115,12 +126,16 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		_ = dw.Commit()
 		return
 	}
+	if modelID == "" {
+		modelID = cursor_api_sdk.ResolveModelID(req.Model)
+	}
+	setCursorModelHeaders(dw.Header(), resolvedSel)
 	if len(calls) > 0 && parkedRC != nil {
-		h.Server.bridges().park(bridgeKey, parkedRC, payload.ModelID)
-		writeNonStreamToolCalls(dw, id, created, payload.ModelID, text, calls)
+		h.Server.bridges().park(bridgeKey, parkedRC, modelID)
+		writeNonStreamToolCalls(dw, id, created, modelID, text, calls)
 		return
 	}
-	writeNonStreamText(dw, id, created, payload.ModelID, text)
+	writeNonStreamText(dw, id, created, modelID, text)
 }
 
 func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest) {
@@ -186,21 +201,32 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	payload, err := cursor_api_sdk.BuildRunPayload(req.Model, parsed)
-	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	payload.Tools = mcpTools
 	h.Server.bridges().drop(bridgeKey)
 
 	bridgeTools := len(mcpTools) > 0
 	err = h.Server.withAccess(ctx, func(access string) error {
-		rc, err := h.Server.API.StartRun(ctx, access, payload, bridgeTools)
+		sel, err := h.Server.API.ResolveModelSelection(ctx, access, req.Model)
+		if err != nil {
+			h.Server.log().Warn("model selection resolve failed; using literal", "model", req.Model, "err", err)
+			sel = cursor_api_sdk.LiteralModelSelection(req.Model)
+		}
+		if sel.SupportsAgent != nil && !*sel.SupportsAgent {
+			h.Server.log().Warn("catalog marks model as non-agent", "model", sel.PublicID, "wire_model_id", sel.WireModelID)
+		}
+		payload, err := cursor_api_sdk.BuildRunPayloadSelection(sel, parsed)
 		if err != nil {
 			return err
 		}
-		return streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h)
+		payload.Tools = mcpTools
+		setCursorModelHeaders(dw.Header(), sel)
+		rc, err := h.Server.API.StartRun(ctx, access, payload, bridgeTools)
+		if err != nil {
+			return cursor_api_sdk.WithModelID(err, sel.PublicID)
+		}
+		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h); err != nil {
+			return cursor_api_sdk.WithModelID(err, sel.PublicID)
+		}
+		return nil
 	})
 	if err != nil && !committed {
 		writeAPIError(dw, http.StatusBadGateway, err.Error())

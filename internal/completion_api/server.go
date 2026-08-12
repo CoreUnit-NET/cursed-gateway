@@ -30,6 +30,7 @@ type AccountPool interface {
 // *cursor_api_sdk.Client satisfies this interface.
 type UpstreamAPI interface {
 	ListModels(ctx context.Context, accessToken string) ([]cursor_api_sdk.Model, error)
+	ResolveModelSelection(ctx context.Context, accessToken, modelID string) (cursor_api_sdk.ModelSelection, error)
 	StartRun(ctx context.Context, accessToken string, payload *cursor_api_sdk.RunPayload, bridgeTools bool) (*cursor_api_sdk.RunControl, error)
 }
 
@@ -97,7 +98,12 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 		// Pre-stream / init style errors: try next account.
 		var apiErr *cursor_api_sdk.APIError
 		if errors.As(err, &apiErr) {
-			s.log().Warn("upstream error; trying next", "session", acc.ID, "err", err)
+			s.log().Warn("upstream error; trying next",
+				"session", acc.ID,
+				"err", err,
+				"code", apiErr.Code,
+				"model", apiErr.ModelID,
+			)
 			continue
 		}
 		return err
