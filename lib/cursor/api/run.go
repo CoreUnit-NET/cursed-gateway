@@ -182,7 +182,7 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 	if err != nil {
 		origin = c.baseURL()
 	}
-	slog.Info("starting agent run",
+	slog.Debug("starting agent run",
 		"model", payload.ModelID,
 		"origin", origin,
 		"conversation", payload.Conversation,
@@ -255,7 +255,7 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 		)
 		return nil, WithModelID(classifyHTTP(res.StatusCode, strings.TrimSpace(string(body))), payload.ModelID)
 	}
-	slog.Info("agent run connected", "model", payload.ModelID, "origin", origin, "status", res.StatusCode)
+	slog.Debug("agent run connected", "model", payload.ModelID, "origin", origin, "status", res.StatusCode)
 
 	out := make(chan StreamEvent, 32)
 	rc := &RunControl{

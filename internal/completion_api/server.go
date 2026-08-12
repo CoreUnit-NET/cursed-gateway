@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/account_pool"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/applog"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
 )
@@ -70,10 +71,12 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 	}
 	cands := s.Pool.PickCandidates()
 	if len(cands) == 0 {
+		s.log().Warn("no sessions available", "hint", "login or import")
 		return fmt.Errorf("no sessions in auth store; run login or import first")
 	}
 	var last error
 	for _, acc := range cands {
+		s.log().Log(ctx, applog.LevelTrace, "trying account", "session", acc.ID, "tier", acc.Tier)
 		ready, err := s.Pool.EnsureAccess(ctx, acc.ID)
 		if err != nil {
 			last = err
@@ -106,11 +109,13 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 			)
 			continue
 		}
+		s.log().Error("request aborted", "session", acc.ID, "err", err)
 		return err
 	}
 	if last == nil {
 		last = fmt.Errorf("all accounts failed")
 	}
+	s.log().Error("all account candidates failed", "candidates", len(cands), "err", last)
 	return last
 }
 

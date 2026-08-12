@@ -70,13 +70,14 @@ type connectDebugPayload struct {
 func parseConnectEndStream(payload []byte) error {
 	var doc connectEndError
 	if err := json.Unmarshal(payload, &doc); err != nil {
-		slog.Warn("connect end-stream parse failed", "raw", truncateForLog(payload, 512), "err", err)
+		slog.Error("connect end-stream parse failed", "raw", truncateForLog(payload, 512), "err", err)
 		return fmt.Errorf("connect end-stream parse: %w", err)
 	}
 	if doc.Error.Code == "" && doc.Error.Message == "" {
 		return nil
 	}
 	dbg := extractConnectDebug(doc.Error.Details)
+	// Upstream-reported stream failure; Warn matches other API-layer upstream errors.
 	slog.Warn("connect end-stream error",
 		"code", doc.Error.Code,
 		"message", doc.Error.Message,

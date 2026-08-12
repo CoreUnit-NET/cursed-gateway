@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -25,7 +26,13 @@ func (c *Client) ResolveAgentOrigin(ctx context.Context, accessToken string) (st
 
 	origin, err := c.fetchAgentOrigin(ctx, accessToken)
 	if err != nil || origin == "" {
-		return c.baseURL(), nil
+		fallback := c.baseURL()
+		if err != nil {
+			slog.Warn("agent origin resolve failed; using base URL", "err", err, "fallback", fallback)
+		} else {
+			slog.Warn("agent origin empty; using base URL", "fallback", fallback)
+		}
+		return fallback, nil
 	}
 
 	c.mu.Lock()

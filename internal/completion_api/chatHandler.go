@@ -68,10 +68,24 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		if len(calls) > 0 {
 			h.Server.bridges().park(bridgeKey, br.RC, model)
 			writeNonStreamToolCalls(dw, id, created, model, text, calls)
+			h.Server.log().Info("chat completion",
+				"model", model,
+				"stream", false,
+				"finish", "tool_calls",
+				"tool_calls", len(calls),
+				"resumed", true,
+			)
 			return
 		}
 		br.RC.Close()
 		writeNonStreamText(dw, id, created, model, text)
+		h.Server.log().Info("chat completion",
+			"model", model,
+			"stream", false,
+			"finish", "stop",
+			"chars", len(text),
+			"resumed", true,
+		)
 		return
 	}
 
@@ -133,9 +147,21 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	if len(calls) > 0 && parkedRC != nil {
 		h.Server.bridges().park(bridgeKey, parkedRC, modelID)
 		writeNonStreamToolCalls(dw, id, created, modelID, text, calls)
+		h.Server.log().Info("chat completion",
+			"model", modelID,
+			"stream", false,
+			"finish", "tool_calls",
+			"tool_calls", len(calls),
+		)
 		return
 	}
 	writeNonStreamText(dw, id, created, modelID, text)
+	h.Server.log().Info("chat completion",
+		"model", modelID,
+		"stream", false,
+		"finish", "stop",
+		"chars", len(text),
+	)
 }
 
 func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest) {
@@ -293,6 +319,12 @@ func streamFromRun(
 			dw.Flush()
 			h.Server.bridges().park(bridgeKey, rc, model)
 			parked = true
+			h.Server.log().Info("chat completion",
+				"model", model,
+				"stream", true,
+				"finish", "tool_calls",
+				"tool_calls", len(calls),
+			)
 			return nil
 		}
 		if ev.TurnEnded {
@@ -311,6 +343,11 @@ func streamFromRun(
 			}
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
 			dw.Flush()
+			h.Server.log().Info("chat completion",
+				"model", model,
+				"stream", true,
+				"finish", "stop",
+			)
 			return nil
 		}
 		if ev.Text == "" {

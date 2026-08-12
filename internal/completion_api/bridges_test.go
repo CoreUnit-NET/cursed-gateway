@@ -29,7 +29,7 @@ func TestBridgeRegistryParkTakeDrop(t *testing.T) {
 }
 
 func TestBridgeRegistryExpire(t *testing.T) {
-	reg := newBridgeRegistry()
+	reg := newBridgeRegistry(nil)
 	rc := &cursor_api_sdk.RunControl{}
 	reg.park("old", rc, "m")
 	reg.mu.Lock()

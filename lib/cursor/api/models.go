@@ -99,6 +99,16 @@ func LiteralModelSelection(modelID string) ModelSelection {
 func (c *Client) ListModels(ctx context.Context, accessToken string) ([]Model, error) {
 	models, err := c.fetchAvailableModels(ctx, accessToken)
 	if err != nil || len(models) == 0 {
+		if err != nil {
+			slog.Warn("AvailableModels failed; using fallback catalog",
+				"err", err,
+				"fallback", len(fallbackModels),
+			)
+		} else {
+			slog.Warn("AvailableModels empty; using fallback catalog",
+				"fallback", len(fallbackModels),
+			)
+		}
 		out := make([]Model, len(fallbackModels))
 		copy(out, fallbackModels)
 		c.storeModelCache(out)
@@ -113,7 +123,7 @@ func (c *Client) ResolveModelSelection(ctx context.Context, accessToken, modelID
 	publicID := ResolveModelID(modelID)
 	if m, ok := c.lookupCachedModel(publicID); ok {
 		sel := SelectionFromModel(m)
-		slog.Info("resolved model selection from cache",
+		slog.Debug("resolved model selection from cache",
 			"public_id", sel.PublicID,
 			"wire_model_id", sel.WireModelID,
 			"display_name", sel.DisplayName,
@@ -130,7 +140,7 @@ func (c *Client) ResolveModelSelection(ctx context.Context, accessToken, modelID
 	}
 	if m, ok := findModel(models, publicID); ok {
 		sel := SelectionFromModel(m)
-		slog.Info("resolved model selection from catalog",
+		slog.Debug("resolved model selection from catalog",
 			"public_id", sel.PublicID,
 			"wire_model_id", sel.WireModelID,
 			"display_name", sel.DisplayName,
