@@ -11,7 +11,7 @@ func clearConfigEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"HOST", "PORT", "AUTH_PATH", "MAX_RETRIES", "COOLDOWN_MINS",
-		"PREFER_PRO", "LOG_LEVEL", "LOG_FORMAT", "ENABLE_LOGIN",
+		"PREFER_PRO", "VERBOSE", "LOG_FORMAT", "ENABLE_LOGIN",
 	} {
 		t.Setenv(key, "")
 	}
@@ -46,8 +46,8 @@ func TestParseConfigDefaults(t *testing.T) {
 	if !cfg.PreferPro {
 		t.Fatal("expected PreferPro true by default")
 	}
-	if cfg.LogLevel != "info" {
-		t.Fatalf("LogLevel = %q, want info", cfg.LogLevel)
+	if cfg.Verbose {
+		t.Fatal("expected Verbose false by default")
 	}
 	if cfg.LogFormat != "text" {
 		t.Fatalf("LogFormat = %q, want text", cfg.LogFormat)
@@ -68,7 +68,7 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	t.Setenv("MAX_RETRIES", "9")
 	t.Setenv("COOLDOWN_MINS", "30")
 	t.Setenv("PREFER_PRO", "false")
-	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("VERBOSE", "false")
 	t.Setenv("LOG_FORMAT", "json")
 	t.Setenv("ENABLE_LOGIN", "false")
 
@@ -80,7 +80,7 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 		"-r", "3",
 		"-c", "20",
 		"--prefer-pro=true",
-		"-l", "warn",
+		"-b",
 		"--log-format", "text",
 		"--enable-login=true",
 	}
@@ -107,8 +107,8 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	if !cfg.PreferPro {
 		t.Fatal("expected PreferPro true from flag")
 	}
-	if cfg.LogLevel != "warn" {
-		t.Fatalf("LogLevel = %q, want flag to win", cfg.LogLevel)
+	if !cfg.Verbose {
+		t.Fatal("expected Verbose true from flag")
 	}
 	if cfg.LogFormat != "text" {
 		t.Fatalf("LogFormat = %q, want flag to win", cfg.LogFormat)
@@ -127,7 +127,7 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	t.Setenv("PORT", "7777")
 	t.Setenv("AUTH_PATH", "./data/auth.json")
 	t.Setenv("PREFER_PRO", "false")
-	t.Setenv("LOG_LEVEL", "error")
+	t.Setenv("VERBOSE", "true")
 	t.Setenv("ENABLE_LOGIN", "true")
 
 	os.Args = []string{"cursed-gateway", "serve"}
@@ -148,8 +148,8 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	if cfg.PreferPro {
 		t.Fatal("expected PreferPro false from env")
 	}
-	if cfg.LogLevel != "error" {
-		t.Fatalf("LogLevel = %q, want env", cfg.LogLevel)
+	if !cfg.Verbose {
+		t.Fatal("expected Verbose true from env")
 	}
 	if !cfg.EnableLogin {
 		t.Fatal("expected EnableLogin true from env")

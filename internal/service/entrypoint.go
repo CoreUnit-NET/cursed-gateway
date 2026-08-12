@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/account_pool"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/applog"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/completion_api"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
@@ -36,7 +37,7 @@ func PrintModels(ctx context.Context, s *settings.Settings, out io.Writer, clien
 	if err != nil {
 		return err
 	}
-	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s))
+	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s), nil)
 	api := &cursor_api_sdk.Client{}
 	srv := completion_api.NewServer(pool, api, nil)
 
@@ -57,7 +58,7 @@ func PrintModels(ctx context.Context, s *settings.Settings, out io.Writer, clien
 
 // RunServe starts the OpenAI-compatible HTTP proxy and session refresh loops.
 func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_sdk.Client) error {
-	log := newLogger(s)
+	log := applog.New(s != nil && s.Verbose, settingsLogFormat(s))
 	slog.SetDefault(log)
 
 	store, err := login_session.NewStore(s.AuthPath, client)
@@ -69,7 +70,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 	defer refreshCancel()
 	go store.StartRefreshLoops(refreshCtx, log)
 
-	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s))
+	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s), log)
 	api := &cursor_api_sdk.Client{}
 	srvAPI := completion_api.NewServer(pool, api, log)
 	handler := &completion_api.Handler{Server: srvAPI}
@@ -108,6 +109,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 
 	select {
 	case <-ctx.Done():
+		log.Info("shutting down", "addr", addr)
 		if pendingLogin != nil {
 			pendingLogin.Stop()
 		}
@@ -121,6 +123,9 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 			pendingLogin.Stop()
 		}
 		refreshCancel()
+		if err != nil {
+			log.Error("http server failed", "addr", addr, "err", err)
+		}
 		return err
 	}
 }
@@ -132,24 +137,9 @@ func maxRetries(s *settings.Settings) int {
 	return s.MaxRetries
 }
 
-func newLogger(s *settings.Settings) *slog.Logger {
-	level := slog.LevelInfo
-	if s != nil {
-		switch s.LogLevel {
-		case "debug":
-			level = slog.LevelDebug
-		case "warn":
-			level = slog.LevelWarn
-		case "error":
-			level = slog.LevelError
-		}
+func settingsLogFormat(s *settings.Settings) string {
+	if s == nil {
+		return "text"
 	}
-	opts := &slog.HandlerOptions{Level: level}
-	var h slog.Handler
-	if s != nil && s.LogFormat == "json" {
-		h = slog.NewJSONHandler(os.Stderr, opts)
-	} else {
-		h = slog.NewTextHandler(os.Stderr, opts)
-	}
-	return slog.New(h)
+	return s.LogFormat
 }

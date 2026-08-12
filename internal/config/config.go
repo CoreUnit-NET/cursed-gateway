@@ -9,6 +9,9 @@ internal/settings. Flags override env; missing .env is ignored at main.
 */
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 )
 
@@ -27,6 +30,7 @@ const (
 )
 
 type AppConfig struct {
+	Verbose     bool
 	ShowVersion bool
 
 	// Command is the selected subcommand name (see Command* constants).
@@ -41,7 +45,6 @@ type AppConfig struct {
 	MaxRetries   int
 	CooldownMins int
 	PreferPro    bool
-	LogLevel     string
 	LogFormat    string
 	// EnableLogin registers GET /login (307 to Cursor Deep Control) on serve.
 	EnableLogin bool
@@ -54,6 +57,7 @@ type AppConfig struct {
 
 func defaultAppConfig() *AppConfig {
 	return &AppConfig{
+		Verbose:     false,
 		ShowVersion: false,
 
 		Host:         "0.0.0.0",
@@ -62,7 +66,6 @@ func defaultAppConfig() *AppConfig {
 		MaxRetries:   5,
 		CooldownMins: 15,
 		PreferPro:    true,
-		LogLevel:     "info",
 		LogFormat:    "text",
 		EnableLogin:  false,
 
@@ -197,8 +200,8 @@ func loadEnvVars(appConfig *AppConfig) error {
 	}); err != nil {
 		return err
 	}
-	if err := envIsString("LOG_LEVEL", func(value string) {
-		appConfig.LogLevel = value
+	if err := envIsBool("VERBOSE", func(value bool) {
+		appConfig.Verbose = value
 	}); err != nil {
 		return err
 	}
@@ -224,7 +227,6 @@ func applyServeFlags(appConfig *AppConfig, cmd *cobra.Command) {
 	cmd.PersistentFlags().IntVarP(&appConfig.MaxRetries, "retries", "r", appConfig.MaxRetries, "max account fallback attempts per request (MAX_RETRIES)")
 	cmd.PersistentFlags().IntVarP(&appConfig.CooldownMins, "cooldown", "c", appConfig.CooldownMins, "cooldown minutes for rate-limited accounts (COOLDOWN_MINS)")
 	cmd.PersistentFlags().BoolVar(&appConfig.PreferPro, "prefer-pro", appConfig.PreferPro, "prefer Pro accounts over Free (PREFER_PRO)")
-	cmd.PersistentFlags().StringVarP(&appConfig.LogLevel, "log-level", "l", appConfig.LogLevel, "log level: debug, info, warn, or error (LOG_LEVEL)")
 	cmd.PersistentFlags().StringVar(&appConfig.LogFormat, "log-format", appConfig.LogFormat, "log format: text or json (LOG_FORMAT)")
 	cmd.PersistentFlags().BoolVar(&appConfig.EnableLogin, "enable-login", appConfig.EnableLogin, "opt-in: expose GET /login as 307 redirect to Cursor OAuth (ENABLE_LOGIN)")
 }
@@ -247,6 +249,9 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 		},
 	}
 
+	// Match sibling CLIs: -b/--verbose (VERBOSE); -v/--version plus `version` subcommand.
+	// Verbose enables debug + trace; default logging is info/warn/error/fatal only.
+	rootCmd.PersistentFlags().BoolVarP(&appConfig.Verbose, "verbose", "b", appConfig.Verbose, "enable debug and trace logs (VERBOSE)")
 	rootCmd.Flags().BoolVarP(&appConfig.ShowVersion, "version", "v", appConfig.ShowVersion, "print version")
 
 	applyServeFlags(appConfig, rootCmd)
@@ -279,6 +284,10 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 
 	if commandHelpRequested(cmd) {
 		return nil, ErrHelpRequested
+	}
+
+	if appConfig.Verbose {
+		fmt.Fprintln(os.Stderr, "Verbose mode enabled")
 	}
 
 	return appConfig, nil

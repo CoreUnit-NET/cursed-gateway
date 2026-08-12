@@ -44,7 +44,6 @@ func TestDispatchVersionAndStubs(t *testing.T) {
 		Host:        "127.0.0.1",
 		Port:        8080,
 		AuthPath:    filepath.Join(t.TempDir(), "data.json"),
-		LogLevel:    "info",
 		LogFormat:   "text",
 	}, "Demo", "1.2.3", "abc", rt)
 	if err != nil {
@@ -60,7 +59,6 @@ func TestDispatchVersionAndStubs(t *testing.T) {
 		Port:       8080,
 		AuthPath:   filepath.Join(t.TempDir(), "data.json"),
 		MaxRetries: 1,
-		LogLevel:   "info",
 		LogFormat:  "text",
 	}, "Demo", "1.2.3", "abc", rt)
 	if err == nil {

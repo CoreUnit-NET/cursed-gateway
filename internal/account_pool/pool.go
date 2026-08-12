@@ -9,6 +9,7 @@ cool down accounts that hit rate limits.
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ type Pool struct {
 	PreferPro    bool
 	CooldownMins int
 	MaxRetries   int
+	Log          *slog.Logger
 
 	mu       sync.Mutex
 	rr       int
@@ -31,18 +33,29 @@ type Pool struct {
 }
 
 // New creates a pool bound to a session store.
-func New(store *login_session.Store, preferPro bool, cooldownMins, maxRetries int) *Pool {
+func New(store *login_session.Store, preferPro bool, cooldownMins, maxRetries int, log *slog.Logger) *Pool {
 	if maxRetries < 1 {
 		maxRetries = 1
+	}
+	if log == nil {
+		log = slog.Default()
 	}
 	return &Pool{
 		Store:        store,
 		PreferPro:    preferPro,
 		CooldownMins: cooldownMins,
 		MaxRetries:   maxRetries,
+		Log:          log,
 		cooldown:     map[string]time.Time{},
 		lastUsed:     map[string]time.Time{},
 	}
+}
+
+func (p *Pool) log() *slog.Logger {
+	if p != nil && p.Log != nil {
+		return p.Log
+	}
+	return slog.Default()
 }
 
 // EnsureAccess refreshes tokens for id if needed.
@@ -59,6 +72,7 @@ func (p *Pool) MarkRateLimited(id string) {
 		mins = 15
 	}
 	p.cooldown[id] = time.Now().Add(time.Duration(mins) * time.Minute)
+	p.log().Info("account cooldown started", "session", id, "minutes", mins)
 }
 
 // MarkUsed records successful use for rotation fairness.
@@ -88,6 +102,7 @@ func (p *Pool) PickCandidates() []*cursor_account_sdk.Account {
 	}
 	if len(healthy) == 0 {
 		// All cooling — allow any account rather than fail hard.
+		p.log().Warn("all accounts cooling; ignoring cooldowns", "sessions", len(list))
 		healthy = append(healthy, list...)
 	}
 

@@ -15,7 +15,7 @@ func TestFromAppConfigOK(t *testing.T) {
 		MaxRetries:   5,
 		CooldownMins: 15,
 		PreferPro:    true,
-		LogLevel:     "INFO",
+		Verbose:      true,
 		LogFormat:    "JSON",
 		ImportPath:   "./data/auth.json",
 	}
@@ -23,7 +23,7 @@ func TestFromAppConfigOK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.LogLevel != "info" || s.LogFormat != "json" {
+	if !s.Verbose || s.LogFormat != "json" {
 		t.Fatalf("normalization failed: %+v", s)
 	}
 }
@@ -33,7 +33,6 @@ func TestFromAppConfigInvalidPort(t *testing.T) {
 		Host:      "127.0.0.1",
 		Port:      0,
 		AuthPath:  "./data/data.json",
-		LogLevel:  "info",
 		LogFormat: "text",
 	}
 	if _, err := FromAppConfig(cfg); err == nil {

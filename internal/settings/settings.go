@@ -33,7 +33,7 @@ type Settings struct {
 	MaxRetries   int
 	CooldownMins int
 	PreferPro    bool
-	LogLevel     string
+	Verbose      bool
 	LogFormat    string
 	EnableLogin  bool
 }
@@ -55,7 +55,7 @@ func FromAppConfig(cfg *config.AppConfig) (*Settings, error) {
 		MaxRetries:    cfg.MaxRetries,
 		CooldownMins:  cfg.CooldownMins,
 		PreferPro:     cfg.PreferPro,
-		LogLevel:      strings.ToLower(strings.TrimSpace(cfg.LogLevel)),
+		Verbose:       cfg.Verbose,
 		LogFormat:     strings.ToLower(strings.TrimSpace(cfg.LogFormat)),
 		EnableLogin:   cfg.EnableLogin,
 	}
@@ -80,11 +80,6 @@ func (s *Settings) validate() error {
 	}
 	if s.CooldownMins < 0 {
 		return fmt.Errorf("cooldown minutes must be >= 0")
-	}
-	switch s.LogLevel {
-	case "debug", "info", "warn", "error":
-	default:
-		return fmt.Errorf("log level must be debug, info, warn, or error; got %q", s.LogLevel)
 	}
 	switch s.LogFormat {
 	case "text", "json":
