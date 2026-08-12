@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 )
 
 const (
@@ -47,18 +48,77 @@ func readConnectFrame(r io.Reader) (connectFrame, error) {
 
 type connectEndError struct {
 	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
+		Code    string          `json:"code"`
+		Message string          `json:"message"`
+		Details []connectDetail `json:"details"`
 	} `json:"error"`
+}
+
+type connectDetail struct {
+	Type  string          `json:"type"`
+	Debug json.RawMessage `json:"debug"`
+}
+
+type connectDebugPayload struct {
+	Error   string `json:"error"`
+	Details *struct {
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
+	} `json:"details"`
 }
 
 func parseConnectEndStream(payload []byte) error {
 	var doc connectEndError
 	if err := json.Unmarshal(payload, &doc); err != nil {
+		slog.Warn("connect end-stream parse failed", "raw", truncateForLog(payload, 512), "err", err)
 		return fmt.Errorf("connect end-stream parse: %w", err)
 	}
 	if doc.Error.Code == "" && doc.Error.Message == "" {
 		return nil
 	}
-	return classifyConnectCode(doc.Error.Code, doc.Error.Message)
+	dbg := extractConnectDebug(doc.Error.Details)
+	slog.Warn("connect end-stream error",
+		"code", doc.Error.Code,
+		"message", doc.Error.Message,
+		"debug_error", dbg.Error,
+		"title", dbg.Title,
+		"detail", dbg.Detail,
+		"raw", truncateForLog(payload, 512),
+	)
+	return classifyConnectCode(doc.Error.Code, doc.Error.Message, dbg)
+}
+
+func extractConnectDebug(details []connectDetail) connectDebugInfo {
+	var out connectDebugInfo
+	for _, d := range details {
+		if len(d.Debug) == 0 {
+			continue
+		}
+		var dbg connectDebugPayload
+		if err := json.Unmarshal(d.Debug, &dbg); err != nil {
+			continue
+		}
+		if dbg.Error != "" {
+			out.Error = dbg.Error
+		}
+		if dbg.Details != nil {
+			if dbg.Details.Title != "" {
+				out.Title = dbg.Details.Title
+			}
+			if dbg.Details.Detail != "" {
+				out.Detail = dbg.Details.Detail
+			}
+		}
+		if out.Error != "" || out.Detail != "" {
+			return out
+		}
+	}
+	return out
+}
+
+func truncateForLog(b []byte, max int) string {
+	if len(b) <= max {
+		return string(b)
+	}
+	return string(b[:max]) + "…"
 }

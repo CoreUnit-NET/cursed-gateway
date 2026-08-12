@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -181,6 +182,13 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 	if err != nil {
 		origin = c.baseURL()
 	}
+	slog.Info("starting agent run",
+		"model", payload.ModelID,
+		"origin", origin,
+		"conversation", payload.Conversation,
+		"bridge_tools", bridgeTools,
+		"request_bytes", len(payload.RequestBytes),
+	)
 
 	// Detach from the inbound HTTP request cancel so park/resume across tool
 	// turns keeps the Connect stream alive after the OpenAI response ends.
@@ -239,8 +247,15 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 		_ = res.Body.Close()
 		cancel()
 		_ = pw.Close()
-		return nil, classifyHTTP(res.StatusCode, strings.TrimSpace(string(body)))
+		slog.Warn("agent run HTTP error",
+			"model", payload.ModelID,
+			"origin", origin,
+			"status", res.StatusCode,
+			"body", truncateForLog(body, 512),
+		)
+		return nil, WithModelID(classifyHTTP(res.StatusCode, strings.TrimSpace(string(body))), payload.ModelID)
 	}
+	slog.Info("agent run connected", "model", payload.ModelID, "origin", origin, "status", res.StatusCode)
 
 	out := make(chan StreamEvent, 32)
 	rc := &RunControl{
@@ -345,7 +360,7 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 
 			if fr.f.Flags&flagEndStream != 0 {
 				if err := parseConnectEndStream(fr.f.Payload); err != nil {
-					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
+					out <- StreamEvent{Err: WithModelID(err, payload.ModelID), HTTPStatus: res.StatusCode}
 				}
 				return
 			}
