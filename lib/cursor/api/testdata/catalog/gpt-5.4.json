@@ -1,0 +1,470 @@
+{
+  "name": "gpt-5.4",
+  "supportsAgent": true,
+  "degradationStatus": "DEGRADATION_STATUS_UNSPECIFIED",
+  "tooltipData": {
+    "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br />*Version: medium reasoning effort*"
+  },
+  "supportsThinking": true,
+  "supportsImages": true,
+  "supportsMaxMode": true,
+  "clientDisplayName": "GPT-5.4",
+  "serverModelName": "gpt-5.4",
+  "supportsNonMaxMode": true,
+  "tooltipDataForMaxMode": {
+    "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />1M context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The cost is 2x when the input exceeds 272k tokens.</span><br /><br />*Version: medium reasoning effort*"
+  },
+  "isRecommendedForBackgroundComposer": true,
+  "supportsPlanMode": true,
+  "inputboxShortModelName": "GPT-5.4",
+  "supportsSandboxing": true,
+  "parameterDefinitions": [
+    {
+      "id": "context",
+      "name": "Context",
+      "markdownTooltip": "Context size the model has available.",
+      "parameterType": {
+        "enumParameter": {
+          "values": [
+            {
+              "value": "272k",
+              "displayName": "272K"
+            },
+            {
+              "value": "1m",
+              "displayName": "1M",
+              "increasesModelCost": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "reasoning",
+      "name": "Reasoning",
+      "markdownTooltip": "Reasoning effort the model uses to generate its response.",
+      "parameterType": {
+        "enumParameter": {
+          "values": [
+            {
+              "value": "none",
+              "displayName": "None"
+            },
+            {
+              "value": "low",
+              "displayName": "Low"
+            },
+            {
+              "value": "medium",
+              "displayName": "Medium"
+            },
+            {
+              "value": "high",
+              "displayName": "High"
+            },
+            {
+              "value": "extra-high",
+              "displayName": "Extra High"
+            }
+          ]
+        }
+      },
+      "isCycleableByHotkey": true
+    },
+    {
+      "id": "fast",
+      "name": "Fast",
+      "markdownTooltip": "2x more expensive, but faster speeds.",
+      "parameterType": {
+        "booleanParameter": {
+          "values": [
+            {
+              "value": "false"
+            },
+            {
+              "value": "true",
+              "displayName": "Fast",
+              "increasesModelCost": true
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "variants": [
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "none"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">None</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br />*Version: none reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">None</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=none,fast=false]",
+      "legacySlug": "gpt-5.4-none"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "none"
+        },
+        {
+          "id": "fast",
+          "value": "true"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">None Fast</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4 (fast)**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The same GPT-5.4 model, using OpenAI's fast priority processing at 2x the price.</span><br /><br />*Version: none reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">None Fast</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=none,fast=true]",
+      "legacySlug": "gpt-5.4-none-fast"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "low"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Low</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br />*Version: low reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Low</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=low,fast=false]",
+      "legacySlug": "gpt-5.4-low"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "low"
+        },
+        {
+          "id": "fast",
+          "value": "true"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Low Fast</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4 (fast)**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The same GPT-5.4 model, using OpenAI's fast priority processing at 2x the price.</span><br /><br />*Version: low reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Low Fast</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=low,fast=true]",
+      "legacySlug": "gpt-5.4-low-fast"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "medium"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Medium</span>",
+      "isDefaultNonMaxConfig": true,
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br />*Version: medium reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Medium</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=medium,fast=false]",
+      "legacySlug": "gpt-5.4-medium"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "medium"
+        },
+        {
+          "id": "fast",
+          "value": "true"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Medium Fast</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4 (fast)**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The same GPT-5.4 model, using OpenAI's fast priority processing at 2x the price.</span><br /><br />*Version: medium reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Medium Fast</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=medium,fast=true]",
+      "legacySlug": "gpt-5.4-medium-fast"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "high"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">High</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br />*Version: high reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">High</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=high,fast=false]",
+      "legacySlug": "gpt-5.4-high"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "high"
+        },
+        {
+          "id": "fast",
+          "value": "true"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">High Fast</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4 (fast)**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The same GPT-5.4 model, using OpenAI's fast priority processing at 2x the price.</span><br /><br />*Version: high reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">High Fast</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=high,fast=true]",
+      "legacySlug": "gpt-5.4-high-fast"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "extra-high"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Extra High</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br />*Version: extra high reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Extra High</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=extra-high,fast=false]",
+      "legacySlug": "gpt-5.4-xhigh"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "272k"
+        },
+        {
+          "id": "reasoning",
+          "value": "extra-high"
+        },
+        {
+          "id": "fast",
+          "value": "true"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Extra High Fast</span>",
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4 (fast)**<br />Earlier OpenAI model, for complex tasks.<br /><br />272k context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The same GPT-5.4 model, using OpenAI's fast priority processing at 2x the price.</span><br /><br />*Version: extra high reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">Extra High Fast</span>",
+      "variantStringRepresentation": "gpt-5.4[context=272k,reasoning=extra-high,fast=true]",
+      "legacySlug": "gpt-5.4-xhigh-fast"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "1m"
+        },
+        {
+          "id": "reasoning",
+          "value": "none"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M None</span>",
+      "isMaxMode": true,
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />1M context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The cost is 2x when the input exceeds 272k tokens.</span><br /><br />*Version: none reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M None</span>",
+      "variantStringRepresentation": "gpt-5.4[context=1m,reasoning=none,fast=false]",
+      "legacySlug": "gpt-5.4-none"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "1m"
+        },
+        {
+          "id": "reasoning",
+          "value": "low"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M Low</span>",
+      "isMaxMode": true,
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />1M context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The cost is 2x when the input exceeds 272k tokens.</span><br /><br />*Version: low reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M Low</span>",
+      "variantStringRepresentation": "gpt-5.4[context=1m,reasoning=low,fast=false]",
+      "legacySlug": "gpt-5.4-low"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "1m"
+        },
+        {
+          "id": "reasoning",
+          "value": "medium"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M Medium</span>",
+      "isMaxMode": true,
+      "isDefaultMaxConfig": true,
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />1M context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The cost is 2x when the input exceeds 272k tokens.</span><br /><br />*Version: medium reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M Medium</span>",
+      "variantStringRepresentation": "gpt-5.4[context=1m,reasoning=medium,fast=false]",
+      "legacySlug": "gpt-5.4-medium"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "1m"
+        },
+        {
+          "id": "reasoning",
+          "value": "high"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M High</span>",
+      "isMaxMode": true,
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />1M context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The cost is 2x when the input exceeds 272k tokens.</span><br /><br />*Version: high reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M High</span>",
+      "variantStringRepresentation": "gpt-5.4[context=1m,reasoning=high,fast=false]",
+      "legacySlug": "gpt-5.4-high"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "context",
+          "value": "1m"
+        },
+        {
+          "id": "reasoning",
+          "value": "extra-high"
+        },
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M Extra High</span>",
+      "isMaxMode": true,
+      "tooltipData": {
+        "markdownContent": "**GPT-5.4**<br />Earlier OpenAI model, for complex tasks.<br /><br />1M context window<br /><br /><span style=\"color:var(--vscode-editorWarning-foreground);\">The cost is 2x when the input exceeds 272k tokens.</span><br /><br />*Version: extra high reasoning effort*"
+      },
+      "displayNameOutsidePicker": "GPT-5.4 <span style=\"color: var(--cursor-text-tertiary);\">1M Extra High</span>",
+      "variantStringRepresentation": "gpt-5.4[context=1m,reasoning=extra-high,fast=false]",
+      "legacySlug": "gpt-5.4-xhigh"
+    }
+  ],
+  "upgradeModelId": "gpt-5.6-sol",
+  "legacySlugs": [
+    "gpt-5.4-none",
+    "gpt-5.4-none-fast",
+    "gpt-5.4-low",
+    "gpt-5.4-low-fast",
+    "gpt-5.4-medium",
+    "gpt-5.4-medium-fast",
+    "gpt-5.4-high",
+    "gpt-5.4-high-fast",
+    "gpt-5.4-xhigh",
+    "gpt-5.4-xhigh-fast"
+  ],
+  "idAliases": [
+    "gpt"
+  ],
+  "namedModelSectionIndex": 1,
+  "vendorName": "openai",
+  "vendor": {
+    "id": "MODEL_VENDOR_ID_OPENAI",
+    "displayName": "OpenAI"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "name": "claude-haiku-4-5",
+  "supportsAgent": true,
+  "degradationStatus": "DEGRADATION_STATUS_UNSPECIFIED",
+  "supportsThinking": true,
+  "supportsImages": true,
+  "supportsMaxMode": true,
+  "clientDisplayName": "Haiku 4.5",
+  "serverModelName": "claude-haiku-4-5",
+  "supportsNonMaxMode": true,
+  "isRecommendedForBackgroundComposer": false,
+  "supportsPlanMode": true,
+  "inputboxShortModelName": "Haiku 4.5",
+  "supportsSandboxing": true,
+  "parameterDefinitions": [
+    {
+      "id": "thinking",
+      "name": "Thinking",
+      "markdownTooltip": "Does the model use thinking to generate its response?",
+      "parameterType": {
+        "booleanParameter": {
+          "values": [
+            {
+              "value": "false"
+            },
+            {
+              "value": "true"
+            }
+          ]
+        }
+      },
+      "isCycleableByHotkey": true
+    }
+  ],
+  "variants": [
+    {
+      "parameterValues": [
+        {
+          "id": "thinking",
+          "value": "false"
+        }
+      ],
+      "displayName": "Haiku 4.5 <span style=\"color: var(--cursor-text-tertiary);\">No Thinking</span>",
+      "displayNameOutsidePicker": "Haiku 4.5 <span style=\"color: var(--cursor-text-tertiary);\">No Thinking</span>",
+      "variantStringRepresentation": "claude-haiku-4-5[thinking=false]",
+      "legacySlug": "claude-4.5-haiku"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "thinking",
+          "value": "true"
+        }
+      ],
+      "displayName": "Haiku 4.5",
+      "isDefaultMaxConfig": true,
+      "isDefaultNonMaxConfig": true,
+      "displayNameOutsidePicker": "Haiku 4.5",
+      "variantStringRepresentation": "claude-haiku-4-5[thinking=true]",
+      "legacySlug": "claude-4.5-haiku-thinking"
+    }
+  ],
+  "legacySlugs": [
+    "claude-4.5-haiku",
+    "claude-4.5-haiku-thinking"
+  ],
+  "idAliases": [
+    "haiku-latest",
+    "haiku",
+    "haiku-4.5",
+    "haiku-4-5"
+  ],
+  "namedModelSectionIndex": 1,
+  "vendorName": "anthropic",
+  "vendor": {
+    "id": "MODEL_VENDOR_ID_ANTHROPIC",
+    "displayName": "Anthropic"
+  },
+  "supportsSmartModeClassifier": true
+}

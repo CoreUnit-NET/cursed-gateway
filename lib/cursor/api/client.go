@@ -42,6 +42,8 @@ type Client struct {
 
 	mu       sync.Mutex
 	agentURL string // memoized GetServerConfig origin
+	models   map[string]Model
+	modelsAt time.Time
 }
 
 func (c *Client) httpClient() *http.Client {

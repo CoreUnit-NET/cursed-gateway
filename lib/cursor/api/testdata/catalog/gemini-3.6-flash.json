@@ -1,0 +1,131 @@
+{
+  "name": "gemini-3.6-flash",
+  "supportsAgent": true,
+  "degradationStatus": "DEGRADATION_STATUS_UNSPECIFIED",
+  "tooltipData": {
+    "markdownContent": "**Gemini 3.6 Flash**<br />Google's latest flash model, great for daily use.<br /><br />1M context window<br /><br />*Version: high effort*"
+  },
+  "supportsThinking": true,
+  "supportsImages": true,
+  "supportsMaxMode": true,
+  "clientDisplayName": "Gemini 3.6 Flash",
+  "serverModelName": "gemini-3.6-flash",
+  "supportsNonMaxMode": true,
+  "tooltipDataForMaxMode": {
+    "markdownContent": "**Gemini 3.6 Flash**<br />Google's latest flash model, great for daily use.<br /><br />1M context window<br /><br />*Version: high effort*"
+  },
+  "isRecommendedForBackgroundComposer": false,
+  "supportsPlanMode": true,
+  "inputboxShortModelName": "Gemini 3.6 Flash",
+  "supportsSandboxing": true,
+  "parameterDefinitions": [
+    {
+      "id": "effort",
+      "name": "Effort",
+      "markdownTooltip": "Effort the model uses to generate its response.",
+      "parameterType": {
+        "enumParameter": {
+          "values": [
+            {
+              "value": "minimal",
+              "displayName": "Minimal"
+            },
+            {
+              "value": "low",
+              "displayName": "Low"
+            },
+            {
+              "value": "medium",
+              "displayName": "Medium"
+            },
+            {
+              "value": "high",
+              "displayName": "High"
+            }
+          ]
+        }
+      },
+      "isCycleableByHotkey": true
+    }
+  ],
+  "variants": [
+    {
+      "parameterValues": [
+        {
+          "id": "effort",
+          "value": "minimal"
+        }
+      ],
+      "displayName": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">Minimal</span>",
+      "tooltipData": {
+        "markdownContent": "**Gemini 3.6 Flash**<br />Google's latest flash model, great for daily use.<br /><br />1M context window<br /><br />*Version: minimal effort*"
+      },
+      "displayNameOutsidePicker": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">Minimal</span>",
+      "variantStringRepresentation": "gemini-3.6-flash[effort=minimal]",
+      "legacySlug": "gemini-3.6-flash-minimal"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "effort",
+          "value": "low"
+        }
+      ],
+      "displayName": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">Low</span>",
+      "tooltipData": {
+        "markdownContent": "**Gemini 3.6 Flash**<br />Google's latest flash model, great for daily use.<br /><br />1M context window<br /><br />*Version: low effort*"
+      },
+      "displayNameOutsidePicker": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">Low</span>",
+      "variantStringRepresentation": "gemini-3.6-flash[effort=low]",
+      "legacySlug": "gemini-3.6-flash-low"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "effort",
+          "value": "medium"
+        }
+      ],
+      "displayName": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">Medium</span>",
+      "tooltipData": {
+        "markdownContent": "**Gemini 3.6 Flash**<br />Google's latest flash model, great for daily use.<br /><br />1M context window<br /><br />*Version: medium effort*"
+      },
+      "displayNameOutsidePicker": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">Medium</span>",
+      "variantStringRepresentation": "gemini-3.6-flash[effort=medium]",
+      "legacySlug": "gemini-3.6-flash-medium"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "effort",
+          "value": "high"
+        }
+      ],
+      "displayName": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">High</span>",
+      "isDefaultMaxConfig": true,
+      "isDefaultNonMaxConfig": true,
+      "tooltipData": {
+        "markdownContent": "**Gemini 3.6 Flash**<br />Google's latest flash model, great for daily use.<br /><br />1M context window<br /><br />*Version: high effort*"
+      },
+      "displayNameOutsidePicker": "Gemini 3.6 Flash <span style=\"color: var(--cursor-text-tertiary);\">High</span>",
+      "variantStringRepresentation": "gemini-3.6-flash[effort=high]",
+      "legacySlug": "gemini-3.6-flash-high"
+    }
+  ],
+  "legacySlugs": [
+    "gemini-3.6-flash-minimal",
+    "gemini-3.6-flash-low",
+    "gemini-3.6-flash-medium",
+    "gemini-3.6-flash-high"
+  ],
+  "idAliases": [
+    "gemini-flash-latest",
+    "gemini-flash"
+  ],
+  "namedModelSectionIndex": 1,
+  "vendorName": "google",
+  "vendor": {
+    "id": "MODEL_VENDOR_ID_GOOGLE",
+    "displayName": "Google"
+  }
+}

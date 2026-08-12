@@ -100,10 +100,26 @@ type RunPayload struct {
 
 // BuildRunPayload builds an AgentClientMessage run_request (blob system prompt strategy).
 func BuildRunPayload(modelID string, parsed ParsedChat) (*RunPayload, error) {
+	return BuildRunPayloadSelection(LiteralModelSelection(modelID), parsed)
+}
+
+// BuildRunPayloadSelection builds a run request using catalog-resolved model identity.
+// ModelDetails.model_id and RequestedModel.model_id use the agent wire id (legacy slug
+// when present). OpenAI response model id stays the public/catalog id.
+func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayload, error) {
 	if strings.TrimSpace(parsed.UserText) == "" {
 		return nil, fmt.Errorf("chat request missing user message")
 	}
-	wireID := ResolveModelID(modelID)
+	if sel.PublicID == "" {
+		sel = LiteralModelSelection(sel.WireModelID)
+	}
+	if sel.WireModelID == "" {
+		sel.WireModelID = sel.PublicID
+	}
+	if sel.DisplayName == "" {
+		sel.DisplayName = sel.PublicID
+	}
+
 	blobStore := map[string][]byte{}
 
 	turnBytes := make([][]byte, 0, len(parsed.Turns))
@@ -171,6 +187,15 @@ func BuildRunPayload(modelID string, parsed ParsedChat) (*RunPayload, error) {
 		ReadPaths:              nil,
 	}
 
+	maxMode := sel.MaxMode
+	params := make([]*cursorProto.RequestedModel_ModelParameterbytes, 0, len(sel.Parameters))
+	for _, p := range sel.Parameters {
+		params = append(params, &cursorProto.RequestedModel_ModelParameterbytes{
+			Id:    p.ID,
+			Value: p.Value,
+		})
+	}
+
 	runReq := &cursorProto.AgentRunRequest{
 		ConversationState: state,
 		Action: &cursorProto.ConversationAction{
@@ -184,9 +209,15 @@ func BuildRunPayload(modelID string, parsed ParsedChat) (*RunPayload, error) {
 			},
 		},
 		ModelDetails: &cursorProto.ModelDetails{
-			ModelId:        wireID,
-			DisplayModelId: wireID,
-			DisplayName:    wireID,
+			ModelId:        sel.WireModelID,
+			DisplayModelId: sel.PublicID,
+			DisplayName:    sel.DisplayName,
+			MaxMode:        &maxMode,
+		},
+		RequestedModel: &cursorProto.RequestedModel{
+			ModelId:    sel.WireModelID,
+			MaxMode:    sel.MaxMode,
+			Parameters: params,
 		},
 		ConversationId: proto.String(convID),
 	}
@@ -202,7 +233,7 @@ func BuildRunPayload(modelID string, parsed ParsedChat) (*RunPayload, error) {
 		RequestBytes: reqBytes,
 		BlobStore:    blobStore,
 		Conversation: convID,
-		ModelID:      wireID,
+		ModelID:      sel.PublicID,
 	}, nil
 }
 

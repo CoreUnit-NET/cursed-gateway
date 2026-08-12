@@ -1,0 +1,93 @@
+{
+  "name": "composer-2.5",
+  "defaultOn": true,
+  "supportsAgent": true,
+  "degradationStatus": "DEGRADATION_STATUS_UNSPECIFIED",
+  "tooltipData": {
+    "markdownContent": "**Composer 2.5 (Fast)**<br />Cursor's fast and efficient model -- great for everyday use.<br /><br />200k context window"
+  },
+  "supportsThinking": true,
+  "supportsImages": false,
+  "supportsMaxMode": true,
+  "clientDisplayName": "Composer 2.5",
+  "serverModelName": "composer-2.5",
+  "supportsNonMaxMode": true,
+  "tooltipDataForMaxMode": {
+    "markdownContent": "**Composer 2.5 (Fast)**<br />Cursor's fast and efficient model -- great for everyday use.<br /><br />200k context window"
+  },
+  "isRecommendedForBackgroundComposer": false,
+  "supportsPlanMode": true,
+  "inputboxShortModelName": "Composer 2.5",
+  "supportsSandboxing": true,
+  "supportsCmdK": false,
+  "parameterDefinitions": [
+    {
+      "id": "fast",
+      "name": "Fast",
+      "markdownTooltip": "Significantly faster but consumes more usage",
+      "parameterType": {
+        "booleanParameter": {
+          "values": [
+            {
+              "value": "false"
+            },
+            {
+              "value": "true",
+              "displayName": "Fast",
+              "increasesModelCost": true
+            }
+          ]
+        }
+      },
+      "isCycleableByHotkey": true
+    }
+  ],
+  "variants": [
+    {
+      "parameterValues": [
+        {
+          "id": "fast",
+          "value": "true"
+        }
+      ],
+      "displayName": "Composer 2.5 <span style=\"color: var(--cursor-text-tertiary);\">Fast</span>",
+      "isDefaultMaxConfig": true,
+      "isDefaultNonMaxConfig": true,
+      "tooltipData": {
+        "markdownContent": "**Composer 2.5 (Fast)**<br />Cursor's fast and efficient model -- great for everyday use.<br /><br />200k context window"
+      },
+      "displayNameOutsidePicker": "Composer 2.5 <span style=\"color: var(--cursor-text-tertiary);\">Fast</span>",
+      "variantStringRepresentation": "composer-2.5[fast=true]",
+      "legacySlug": "composer-2.5-fast"
+    },
+    {
+      "parameterValues": [
+        {
+          "id": "fast",
+          "value": "false"
+        }
+      ],
+      "displayName": "Composer 2.5",
+      "tooltipData": {
+        "markdownContent": "**Composer 2.5**<br />Cursor's fast and efficient model -- great for everyday use.<br /><br />200k context window"
+      },
+      "displayNameOutsidePicker": "Composer 2.5",
+      "variantStringRepresentation": "composer-2.5[fast=false]",
+      "legacySlug": "composer-2.5"
+    }
+  ],
+  "legacySlugs": [
+    "composer-2.5-fast"
+  ],
+  "idAliases": [
+    "composer-latest",
+    "composer",
+    "composer-2-5"
+  ],
+  "namedModelSectionIndex": 1,
+  "vendorName": "cursor",
+  "vendor": {
+    "id": "MODEL_VENDOR_ID_CURSOR",
+    "displayName": "Cursor"
+  }
+}
