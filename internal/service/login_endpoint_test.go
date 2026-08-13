@@ -24,7 +24,6 @@ func TestRunServeLoginRedirectOptIn(t *testing.T) {
 		AuthPath:     filepath.Join(dir, "data.json"),
 		MaxRetries:   1,
 		CooldownMins: 10,
-		LogFormat:    "text",
 		EnableLogin:  true,
 	}
 
@@ -93,7 +92,6 @@ func TestRunServeLoginDisabled404(t *testing.T) {
 		AuthPath:     filepath.Join(dir, "data.json"),
 		MaxRetries:   1,
 		CooldownMins: 10,
-		LogFormat:    "text",
 		EnableLogin:  false,
 	}
 

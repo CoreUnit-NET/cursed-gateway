@@ -9,11 +9,13 @@ Default (info+):
   info  — events and changes (handled, started, changed); not repeating loop noise
   warn  — near limits, missing optional data with fallback, report-worthy but non-blocking
   error — real / unexpected failures
-  fatal — unrecoverable; log then stop the process
 
 Verbose also enables:
   debug — repeating / loop actions and other low-interest chatter
   trace — deeper decision points with no existing log; never duplicate an info/debug line
+
+Logging always uses log/slog with a text handler on stderr.
+cmd_handler.Dispatch installs the process logger via slog.SetDefault.
 */
 
 import (
@@ -25,7 +27,7 @@ import (
 const LevelTrace = slog.Level(-8)
 
 // New builds the process logger. Default threshold is info; verbose enables trace+.
-func New(verbose bool, format string) *slog.Logger {
+func New(verbose bool) *slog.Logger {
 	level := slog.LevelInfo
 	if verbose {
 		level = LevelTrace
@@ -41,11 +43,5 @@ func New(verbose bool, format string) *slog.Logger {
 			return a
 		},
 	}
-	var h slog.Handler
-	if format == "json" {
-		h = slog.NewJSONHandler(os.Stderr, opts)
-	} else {
-		h = slog.NewTextHandler(os.Stderr, opts)
-	}
-	return slog.New(h)
+	return slog.New(slog.NewTextHandler(os.Stderr, opts))
 }

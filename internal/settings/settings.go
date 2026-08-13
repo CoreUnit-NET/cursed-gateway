@@ -34,7 +34,6 @@ type Settings struct {
 	CooldownMins int
 	PreferPro    bool
 	Verbose      bool
-	LogFormat    string
 	EnableLogin  bool
 }
 
@@ -56,7 +55,6 @@ func FromAppConfig(cfg *config.AppConfig) (*Settings, error) {
 		CooldownMins:  cfg.CooldownMins,
 		PreferPro:     cfg.PreferPro,
 		Verbose:       cfg.Verbose,
-		LogFormat:     strings.ToLower(strings.TrimSpace(cfg.LogFormat)),
 		EnableLogin:   cfg.EnableLogin,
 	}
 	if err := s.validate(); err != nil {
@@ -80,11 +78,6 @@ func (s *Settings) validate() error {
 	}
 	if s.CooldownMins < 0 {
 		return fmt.Errorf("cooldown minutes must be >= 0")
-	}
-	switch s.LogFormat {
-	case "text", "json":
-	default:
-		return fmt.Errorf("log format must be text or json; got %q", s.LogFormat)
 	}
 	if s.Command == config.CommandImport && s.ImportPath == "" {
 		return fmt.Errorf("import path must not be empty")

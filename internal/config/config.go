@@ -9,9 +9,6 @@ internal/settings. Flags override env; missing .env is ignored at main.
 */
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +42,6 @@ type AppConfig struct {
 	MaxRetries   int
 	CooldownMins int
 	PreferPro    bool
-	LogFormat    string
 	// EnableLogin registers GET /login (307 to Cursor Deep Control) on serve.
 	EnableLogin bool
 
@@ -66,7 +62,6 @@ func defaultAppConfig() *AppConfig {
 		MaxRetries:   5,
 		CooldownMins: 15,
 		PreferPro:    true,
-		LogFormat:    "text",
 		EnableLogin:  false,
 
 		ImportPath: "./data/auth.json",
@@ -205,11 +200,6 @@ func loadEnvVars(appConfig *AppConfig) error {
 	}); err != nil {
 		return err
 	}
-	if err := envIsString("LOG_FORMAT", func(value string) {
-		appConfig.LogFormat = value
-	}); err != nil {
-		return err
-	}
 	if err := envIsBool("ENABLE_LOGIN", func(value bool) {
 		appConfig.EnableLogin = value
 	}); err != nil {
@@ -227,7 +217,6 @@ func applyServeFlags(appConfig *AppConfig, cmd *cobra.Command) {
 	cmd.PersistentFlags().IntVarP(&appConfig.MaxRetries, "retries", "r", appConfig.MaxRetries, "max account fallback attempts per request (MAX_RETRIES)")
 	cmd.PersistentFlags().IntVarP(&appConfig.CooldownMins, "cooldown", "c", appConfig.CooldownMins, "cooldown minutes for rate-limited accounts (COOLDOWN_MINS)")
 	cmd.PersistentFlags().BoolVar(&appConfig.PreferPro, "prefer-pro", appConfig.PreferPro, "prefer Pro accounts over Free (PREFER_PRO)")
-	cmd.PersistentFlags().StringVar(&appConfig.LogFormat, "log-format", appConfig.LogFormat, "log format: text or json (LOG_FORMAT)")
 	cmd.PersistentFlags().BoolVar(&appConfig.EnableLogin, "enable-login", appConfig.EnableLogin, "opt-in: expose GET /login as 307 redirect to Cursor OAuth (ENABLE_LOGIN)")
 }
 
@@ -250,7 +239,7 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 	}
 
 	// Match sibling CLIs: -b/--verbose (VERBOSE); -v/--version plus `version` subcommand.
-	// Verbose enables debug + trace; default logging is info/warn/error/fatal only.
+	// Verbose enables debug + trace; default logging is info/warn/error only (see applog).
 	rootCmd.PersistentFlags().BoolVarP(&appConfig.Verbose, "verbose", "b", appConfig.Verbose, "enable debug and trace logs (VERBOSE)")
 	rootCmd.Flags().BoolVarP(&appConfig.ShowVersion, "version", "v", appConfig.ShowVersion, "print version")
 
@@ -284,10 +273,6 @@ func ParseConfig(displayName, shortName string) (*AppConfig, error) {
 
 	if commandHelpRequested(cmd) {
 		return nil, ErrHelpRequested
-	}
-
-	if appConfig.Verbose {
-		fmt.Fprintln(os.Stderr, "Verbose mode enabled")
 	}
 
 	return appConfig, nil
