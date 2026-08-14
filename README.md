@@ -198,6 +198,8 @@ Flags and environment variables:
 
 </details>
 
+<details><summary><strong>User Guide</strong></summary>
+
 # User Guide
 
 ## Requirements
@@ -263,6 +265,10 @@ make build
 ./cursed-gateway
 ```
 
+</details>
+
+<details><summary><strong>Development</strong></summary>
+
 # Development
 
 ###### _For this section go is required, check out the [install go guide](#install-go)._
@@ -284,6 +290,8 @@ git clone git@github.com:udhos/update-golang.git golang-updater
 cd golang-updater
 sudo ./update-golang.sh
 ```
+
+</details>
 
 <div align="center">
 
