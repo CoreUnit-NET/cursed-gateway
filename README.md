@@ -170,8 +170,10 @@ A `.env` file in the working directory is loaded at startup when present (missin
 - `MAX_RETRIES` or `-r` / `--retries`: max account fallback attempts per request, defaults to `5`
 - `COOLDOWN_MINS` or `-c` / `--cooldown`: cooldown minutes for rate-limited accounts, defaults to `15`
 - `PREFER_PRO` or `--prefer-pro`: prefer Pro accounts over Free, defaults to `true`
-- `LOG_LEVEL` or `-l` / `--log-level`: `debug`, `info`, `warn`, or `error`, defaults to `info`
-- `LOG_FORMAT` or `--log-format`: `text` or `json`, defaults to `text`
+- `VERBOSE` or `-b` / `--verbose`: enable debug and trace logs, defaults to `false`
+- `ENABLE_LOGIN` or `--enable-login`: expose `GET /login` as a 307 redirect to Cursor OAuth, defaults to `false`
+
+Logging always uses `log/slog` text on stderr. There is no `LOG_FORMAT` switch.
 
 Treat `AUTH_PATH` as secret. Do not commit it.
 
