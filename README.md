@@ -10,32 +10,6 @@
 _Do you want to use your own account for different personal AI use cases?_
 `cursed-gateway` is a Cursor API proxy gateway that solves that for you.
 
-# Table of Contents
-
-- [About](#about)
-  - [How it works](#how-it-works)
-  - [Features](#features)
-  - [Out of scope](#out-of-scope)
-- [Usage](#usage)
-  - [login](#login)
-  - [import](#import)
-  - [logout](#logout)
-  - [sessions](#sessions)
-  - [whoami](#whoami)
-  - [models](#models)
-  - [version](#version)
-  - [serve](#serve)
-- [Configuration](#configuration)
-  - [Proto Pipeline](#proto-pipeline)
-- [Requirements](#requirements)
-- [Getting Started](#getting-started)
-- [Quick help](#quick-help)
-- [Install via go](#install-via-go)
-- [Install via wget](#install-via-wget)
-- [Build requirements](#build-requirements)
-- [Build Instructions](#build-instructions)
-- [Install go](#install-go)
-
 ## About
 
 `cursed-gateway` is a Go proxy for setups where several clients need Cursor models through a normal OpenAI-shaped HTTP API.
@@ -44,7 +18,7 @@ It handles Cursor OAuth login, keeps access/refresh tokens on disk, refreshes th
 
 Put it on localhost or a private network next to your agents. Terminate TLS and extra edge auth in front if you need them—this process stays a plain HTTP gateway.
 
-<summary><strong>How it works</strong></summary>
+<details><summary><strong>How it works</strong></summary>
 
 ### How it works
 
@@ -56,7 +30,7 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 
 </details>
 
-<summary><strong>Features</strong></summary>
+<details><summary><strong>Features</strong></summary>
 
 ### Features
 
@@ -74,7 +48,7 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 
 </details>
 
-<summary><strong>Out of scope</strong></summary>
+<details><summary><strong>Out of scope</strong></summary>
 
 ### Out of scope
 
@@ -84,7 +58,7 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 
 </details>
 
-<summary><strong>Usage</strong></summary>
+<details><summary><strong>Usage</strong></summary>
 
 ## Usage
 
@@ -180,7 +154,7 @@ Point clients at `http://<host>:<port>/v1` (default `http://0.0.0.0:8080/v1`).
 
 </details>
 
-<summary><strong>Configuration</strong></summary>
+<details><summary><strong>Configuration</strong></summary>
 
 ## Configuration
 
