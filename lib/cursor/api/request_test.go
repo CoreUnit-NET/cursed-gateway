@@ -26,6 +26,86 @@ func TestParseChatMessages(t *testing.T) {
 	}
 }
 
+func TestChatMessageUnmarshalContent(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "string", raw: `{"role":"user","content":"hello"}`, want: "hello"},
+		{name: "null", raw: `{"role":"assistant","content":null}`},
+		{name: "omitted", raw: `{"role":"assistant"}`},
+		{name: "text parts", raw: `{"role":"user","content":[{"type":"text","text":"hello"},{"type":"text","text":"world"}]}`, want: "hello\nworld"},
+		{name: "string parts", raw: `{"role":"user","content":["hello","world"]}`, want: "hello\nworld"},
+		{name: "mixed image skipped", raw: `{"role":"user","content":[{"type":"text","text":"caption"},{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}]}`, want: "caption"},
+		{name: "input_text", raw: `{"role":"user","content":[{"type":"input_text","text":"hi"}]}`, want: "hi"},
+		{name: "single part object", raw: `{"role":"user","content":{"type":"text","text":"solo"}}`, want: "solo"},
+		{name: "empty array", raw: `{"role":"user","content":[]}`},
+		{name: "number rejected", raw: `{"role":"user","content":1}`, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var msg ChatMessage
+			err := json.Unmarshal([]byte(tc.raw), &msg)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if msg.Content != tc.want {
+				t.Fatalf("content = %q, want %q", msg.Content, tc.want)
+			}
+		})
+	}
+}
+
+func TestChatCompletionRequestArrayContent(t *testing.T) {
+	// OpenCode / OpenAI multipart body that previously failed:
+	// cannot unmarshal array into ... ChatMessage ... content of type string
+	raw := []byte(`{
+		"model": "composer-2.5",
+		"stream": true,
+		"messages": [
+			{"role":"system","content":[{"type":"text","text":"be brief"}]},
+			{"role":"user","content":[{"type":"text","text":"hello"}]}
+		]
+	}`)
+	var req struct {
+		Model    string        `json:"model"`
+		Messages []ChatMessage `json:"messages"`
+		Stream   bool          `json:"stream"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatal(err)
+	}
+	parsed := ParseChatMessages(req.Messages)
+	if parsed.SystemPrompt != "be brief" {
+		t.Fatalf("system = %q", parsed.SystemPrompt)
+	}
+	if parsed.UserText != "hello" {
+		t.Fatalf("user = %q", parsed.UserText)
+	}
+}
+
+func TestChatMessageUnmarshalToolCalls(t *testing.T) {
+	raw := []byte(`{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"fn","arguments":"{}"}}]}`)
+	var msg ChatMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Role != "assistant" || msg.Content != "" {
+		t.Fatalf("msg = %#v", msg)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != "c1" || msg.ToolCalls[0].Function.Name != "fn" {
+		t.Fatalf("tool_calls = %#v", msg.ToolCalls)
+	}
+}
+
 func TestBuildRunPayload(t *testing.T) {
 	payload, err := BuildRunPayload("auto", ParsedChat{
 		SystemPrompt: "sys",

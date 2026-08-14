@@ -20,6 +20,82 @@ type ChatMessage struct {
 	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
+// UnmarshalJSON accepts OpenAI content as a string, null, or array of parts
+// (OpenCode / Chat Completions multipart) and flattens it to text.
+func (m *ChatMessage) UnmarshalJSON(data []byte) error {
+	type alias ChatMessage
+	aux := &struct {
+		Content json.RawMessage `json:"content"`
+		*alias
+	}{alias: (*alias)(m)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	text, err := flattenMessageContent(aux.Content)
+	if err != nil {
+		return err
+	}
+	m.Content = text
+	return nil
+}
+
+func flattenMessageContent(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s, nil
+	}
+	var parts []json.RawMessage
+	if err := json.Unmarshal(raw, &parts); err == nil {
+		return joinContentParts(parts)
+	}
+	if text, ok, err := contentPartText(raw); err != nil {
+		return "", err
+	} else if ok {
+		return text, nil
+	}
+	return "", fmt.Errorf("content must be a string or array of parts")
+}
+
+func joinContentParts(parts []json.RawMessage) (string, error) {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		var s string
+		if err := json.Unmarshal(part, &s); err == nil {
+			if s != "" {
+				texts = append(texts, s)
+			}
+			continue
+		}
+		text, ok, err := contentPartText(part)
+		if err != nil {
+			return "", err
+		}
+		if ok && text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, "\n"), nil
+}
+
+func contentPartText(raw json.RawMessage) (string, bool, error) {
+	var part struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &part); err != nil {
+		return "", false, fmt.Errorf("invalid content part")
+	}
+	switch strings.ToLower(strings.TrimSpace(part.Type)) {
+	case "", "text", "input_text", "output_text":
+		return part.Text, true, nil
+	default:
+		return "", false, nil
+	}
+}
+
 // ConversationTurn is a prior user/assistant pair.
 type ConversationTurn struct {
 	UserText      string
