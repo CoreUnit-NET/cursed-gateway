@@ -6,7 +6,7 @@ Optional helpers (defaults, small shared values). Delete if unused.
 
 import (
 	"fmt"
-	"os"
+	"log/slog"
 	"os/exec"
 	"runtime"
 	"time"
@@ -34,15 +34,18 @@ func OpenBrowser(url string) error {
 	return nil
 }
 
-// PrintLoginURL writes the login URL instructions to w (defaults to stderr).
-func PrintLoginURL(url string) {
-	fmt.Fprintf(os.Stderr, "Open this URL in your browser to authorize Cursor:\n\n  %s\n\nWaiting for authorization…\n", url)
+// PrintLoginURL logs the login URL and that authorization is pending (slog).
+func PrintLoginURL(loginURL string) {
+	slog.Info("open this URL in your browser to authorize Cursor", "url", loginURL)
+	slog.Info("waiting for authorization")
 }
 
-// DefaultOnLoginURL prints the URL and best-effort opens a browser.
+// DefaultOnLoginURL logs the URL and best-effort opens a browser.
 func DefaultOnLoginURL(loginURL string) error {
 	PrintLoginURL(loginURL)
-	_ = OpenBrowser(loginURL)
+	if err := OpenBrowser(loginURL); err != nil {
+		slog.Warn("failed to open browser", "err", err)
+	}
 	return nil
 }
 

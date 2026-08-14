@@ -7,7 +7,7 @@ session via login_session (file/config only — no serve process).
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 )
@@ -22,11 +22,10 @@ func Login(ctx context.Context, s *settings.Settings, rt *Runtime) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(rt.out(), "Logged in session %s", account.ID)
+	attrs := []any{"session", account.ID, "store", store.Path()}
 	if account.Subject != "" {
-		fmt.Fprintf(rt.out(), " (sub %s)", account.Subject)
+		attrs = append(attrs, "sub", account.Subject)
 	}
-	fmt.Fprintln(rt.out())
-	fmt.Fprintf(rt.out(), "Store: %s\n", store.Path())
+	slog.Info("logged in", attrs...)
 	return nil
 }
