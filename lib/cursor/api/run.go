@@ -478,32 +478,17 @@ func (c *Client) CollectText(ctx context.Context, accessToken string, payload *R
 		return "", err
 	}
 	var b strings.Builder
-	var thinkingOpen bool
 	for ev := range ch {
 		if ev.Err != nil {
 			return b.String(), ev.Err
 		}
 		if ev.TurnEnded {
-			if thinkingOpen {
-				b.WriteString("</think>")
-			}
 			return b.String(), nil
 		}
 		if ev.Text == "" {
 			continue
 		}
-		if ev.Thinking {
-			if !thinkingOpen {
-				b.WriteString("<think>")
-				thinkingOpen = true
-			}
-			b.WriteString(ev.Text)
-			continue
-		}
-		if thinkingOpen {
-			b.WriteString("</think>")
-			thinkingOpen = false
-		}
+		// Thinking deltas are kept as plain content (no <think> wrappers).
 		b.WriteString(ev.Text)
 	}
 	return b.String(), ErrIncompleteRun

@@ -272,7 +272,6 @@ func streamFromRun(
 	rc *cursor_api_sdk.RunControl,
 	h *Handler,
 ) error {
-	thinkingOpen := false
 	toolIndex := 0
 	parked := false
 	defer func() {
@@ -297,13 +296,6 @@ func streamFromRun(
 			calls := collectMoreToolCalls(rc, *ev.ToolCall, toolCallGrace)
 			if err := commitSSE(); err != nil {
 				return err
-			}
-			if thinkingOpen {
-				if err := writeSSEContent(dw, id, created, model, "</think>"); err != nil {
-					return err
-				}
-				flusher.Flush()
-				thinkingOpen = false
 			}
 			for _, pe := range calls {
 				if err := writeSSEToolCall(dw, id, created, model, toolIndex, pe); err != nil {
@@ -331,13 +323,6 @@ func streamFromRun(
 			if err := commitSSE(); err != nil {
 				return err
 			}
-			if thinkingOpen {
-				if err := writeSSEContent(dw, id, created, model, "</think>"); err != nil {
-					return err
-				}
-				flusher.Flush()
-				thinkingOpen = false
-			}
 			if err := writeSSEFinish(dw, id, created, model, "stop"); err != nil {
 				return err
 			}
@@ -353,20 +338,11 @@ func streamFromRun(
 		if ev.Text == "" {
 			continue
 		}
-		chunk := ev.Text
-		if ev.Thinking {
-			if !thinkingOpen {
-				chunk = "<think>" + chunk
-				thinkingOpen = true
-			}
-		} else if thinkingOpen {
-			chunk = "</think>" + chunk
-			thinkingOpen = false
-		}
+		// Thinking deltas are kept as plain content (no <think> wrappers).
 		if err := commitSSE(); err != nil {
 			return err
 		}
-		if err := writeSSEContent(dw, id, created, model, chunk); err != nil {
+		if err := writeSSEContent(dw, id, created, model, ev.Text); err != nil {
 			return err
 		}
 		flusher.Flush()
@@ -381,7 +357,6 @@ func streamFromRun(
 
 func consumeRun(rc *cursor_api_sdk.RunControl, grace time.Duration) (string, []cursor_api_sdk.PendingExec, error) {
 	var b strings.Builder
-	thinkingOpen := false
 	for {
 		ev, ok := rc.Recv()
 		if !ok {
@@ -391,34 +366,16 @@ func consumeRun(rc *cursor_api_sdk.RunControl, grace time.Duration) (string, []c
 			return b.String(), nil, ev.Err
 		}
 		if ev.ToolCall != nil {
-			if thinkingOpen {
-				b.WriteString("</think>")
-				thinkingOpen = false
-			}
 			calls := collectMoreToolCalls(rc, *ev.ToolCall, grace)
 			return b.String(), calls, nil
 		}
 		if ev.TurnEnded {
-			if thinkingOpen {
-				b.WriteString("</think>")
-			}
 			return b.String(), nil, nil
 		}
 		if ev.Text == "" {
 			continue
 		}
-		if ev.Thinking {
-			if !thinkingOpen {
-				b.WriteString("<think>")
-				thinkingOpen = true
-			}
-			b.WriteString(ev.Text)
-			continue
-		}
-		if thinkingOpen {
-			b.WriteString("</think>")
-			thinkingOpen = false
-		}
+		// Thinking deltas are kept as plain content (no <think> wrappers).
 		b.WriteString(ev.Text)
 	}
 	return b.String(), nil, cursor_api_sdk.ErrIncompleteRun
