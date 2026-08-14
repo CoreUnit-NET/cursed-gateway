@@ -5,14 +5,20 @@ Package cmd_handler implements CLI subcommand handlers.
 
 Handlers receive validated settings and perform one-shot or long-lived
 work. They do not parse flags; config/settings already did that.
+
+Output policy:
+  - Process events (login URL, login success, serve lifecycle) → log/slog on stderr
+  - Tabular / status CLI results (sessions, whoami, models, version, import/logout) → fmt on stdout
 */
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
+	"github.com/CoreUnit-NET/cursed-gateway/internal/applog"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/config"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
@@ -58,6 +64,11 @@ func Dispatch(ctx context.Context, s *settings.Settings, displayName, version, c
 	}
 	if rt == nil {
 		rt = &Runtime{}
+	}
+
+	slog.SetDefault(applog.New(s.Verbose))
+	if s.Verbose {
+		slog.Info("verbose mode enabled")
 	}
 
 	if s.ShowVersion || s.Command == config.CommandVersion {

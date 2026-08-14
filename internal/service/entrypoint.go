@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/account_pool"
-	"github.com/CoreUnit-NET/cursed-gateway/internal/applog"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/completion_api"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
@@ -37,9 +36,10 @@ func PrintModels(ctx context.Context, s *settings.Settings, out io.Writer, clien
 	if err != nil {
 		return err
 	}
-	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s), nil)
+	log := slog.Default()
+	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s), log)
 	api := &cursor_api_sdk.Client{}
-	srv := completion_api.NewServer(pool, api, nil)
+	srv := completion_api.NewServer(pool, api, log)
 
 	models, err := srv.ListModels(ctx)
 	if err != nil {
@@ -57,9 +57,9 @@ func PrintModels(ctx context.Context, s *settings.Settings, out io.Writer, clien
 }
 
 // RunServe starts the OpenAI-compatible HTTP proxy and session refresh loops.
+// It uses slog.Default(); callers (cmd_handler.Dispatch) must install the process logger first.
 func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_sdk.Client) error {
-	log := applog.New(s != nil && s.Verbose, settingsLogFormat(s))
-	slog.SetDefault(log)
+	log := slog.Default()
 
 	store, err := login_session.NewStore(s.AuthPath, client)
 	if err != nil {
@@ -135,11 +135,4 @@ func maxRetries(s *settings.Settings) int {
 		return 1
 	}
 	return s.MaxRetries
-}
-
-func settingsLogFormat(s *settings.Settings) string {
-	if s == nil {
-		return "text"
-	}
-	return s.LogFormat
 }
