@@ -7,7 +7,7 @@ import (
 func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 	models, err := h.Server.ListModels(r.Context())
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error())
+		h.Server.writeAPIError(w, r, http.StatusBadGateway, err.Error())
 		return
 	}
 

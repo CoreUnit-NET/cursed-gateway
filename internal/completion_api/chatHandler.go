@@ -15,11 +15,11 @@ const toolCallGrace = 150 * time.Millisecond
 func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var req ChatCompletionRequest
 	if err := readJSONBody(r, h.Server.maxBody(), &req); err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	if len(req.Messages) == 0 {
-		writeAPIError(w, http.StatusBadRequest, "messages is required")
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, "messages is required")
 		return
 	}
 	if req.Stream {
@@ -33,7 +33,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
 	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.ToolResults) == 0 {
-		writeAPIError(w, http.StatusBadRequest, "No user message found")
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
 
@@ -45,12 +45,12 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	if len(parsed.ToolResults) > 0 {
 		br := h.Server.bridges().take(bridgeKey)
 		if br == nil || br.RC == nil {
-			writeAPIError(w, http.StatusBadRequest, "no active tool session for this conversation")
+			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation")
 			return
 		}
 		if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
 			br.RC.Close()
-			writeAPIError(dw, http.StatusBadGateway, err.Error())
+			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
 			_ = dw.Commit()
 			return
 		}
@@ -61,7 +61,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		text, calls, err := consumeRun(br.RC, toolCallGrace)
 		if err != nil {
 			br.RC.Close()
-			writeAPIError(dw, http.StatusBadGateway, err.Error())
+			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
 			_ = dw.Commit()
 			return
 		}
@@ -91,7 +91,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 
 	mcpTools, err := cursor_api_sdk.BuildMcpToolDefinitions(req.Tools)
 	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.Server.bridges().drop(bridgeKey)
@@ -136,7 +136,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		return nil
 	})
 	if err != nil {
-		writeAPIError(dw, http.StatusBadGateway, err.Error())
+		h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
 		_ = dw.Commit()
 		return
 	}
@@ -168,14 +168,14 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
 	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.ToolResults) == 0 {
-		writeAPIError(w, http.StatusBadRequest, "No user message found")
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
 
 	bridgeKey := cursor_api_sdk.DeriveBridgeKey(req.Model, req.Messages)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeAPIError(w, http.StatusInternalServerError, "streaming unsupported")
+		h.Server.writeAPIError(w, r, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
 
@@ -201,7 +201,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 	if len(parsed.ToolResults) > 0 {
 		br := h.Server.bridges().take(bridgeKey)
 		if br == nil || br.RC == nil {
-			writeAPIError(w, http.StatusBadRequest, "no active tool session for this conversation")
+			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation")
 			return
 		}
 		model := br.ModelID
@@ -210,13 +210,13 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		}
 		if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
 			br.RC.Close()
-			writeAPIError(dw, http.StatusBadGateway, err.Error())
+			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
 			_ = dw.Commit()
 			return
 		}
 		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h); err != nil && !committed {
 			br.RC.Close()
-			writeAPIError(dw, http.StatusBadGateway, err.Error())
+			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
 			_ = dw.Commit()
 		}
 		return
@@ -224,7 +224,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 
 	mcpTools, err := cursor_api_sdk.BuildMcpToolDefinitions(req.Tools)
 	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.Server.bridges().drop(bridgeKey)
@@ -255,7 +255,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		return nil
 	})
 	if err != nil && !committed {
-		writeAPIError(dw, http.StatusBadGateway, err.Error())
+		h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
 		_ = dw.Commit()
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/account_pool"
-	"github.com/CoreUnit-NET/cursed-gateway/internal/applog"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
 )
@@ -30,6 +29,7 @@ type AccountPool interface {
 // UpstreamAPI is the Cursor upstream surface Server needs.
 // *cursor_api_sdk.Client satisfies this interface.
 type UpstreamAPI interface {
+	CachedModels() []cursor_api_sdk.Model
 	ListModels(ctx context.Context, accessToken string) ([]cursor_api_sdk.Model, error)
 	ResolveModelSelection(ctx context.Context, accessToken, modelID string) (cursor_api_sdk.ModelSelection, error)
 	StartRun(ctx context.Context, accessToken string, payload *cursor_api_sdk.RunPayload, bridgeTools bool) (*cursor_api_sdk.RunControl, error)
@@ -76,7 +76,6 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 	}
 	var last error
 	for _, acc := range cands {
-		s.log().Log(ctx, applog.LevelTrace, "trying account", "session", acc.ID, "tier", acc.Tier)
 		ready, err := s.Pool.EnsureAccess(ctx, acc.ID)
 		if err != nil {
 			last = err
@@ -119,11 +118,15 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 	return last
 }
 
-// ListModels fetches Cursor models using the account pool.
+// ListModels returns the cached catalog when fresh; otherwise fetches via the account pool.
 func (s *Server) ListModels(ctx context.Context) ([]cursor_api_sdk.Model, error) {
 	if s == nil || s.API == nil {
 		return nil, fmt.Errorf("upstream API is not configured")
 	}
+	if cached := s.API.CachedModels(); len(cached) > 0 {
+		return cached, nil
+	}
+	s.log().Debug("models cache miss; fetching via account pool")
 	var models []cursor_api_sdk.Model
 	err := s.withAccess(ctx, func(access string) error {
 		m, err := s.API.ListModels(ctx, access)
@@ -133,6 +136,9 @@ func (s *Server) ListModels(ctx context.Context) ([]cursor_api_sdk.Model, error)
 		models = m
 		return nil
 	})
+	if err == nil {
+		s.log().Debug("models catalog ready", "count", len(models))
+	}
 	return models, err
 }
 
@@ -144,7 +150,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = enc.Encode(v)
 }
 
-func writeAPIError(w http.ResponseWriter, status int, msg string) {
+func (s *Server) writeAPIError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	attrs := []any{"status", status, "err", msg}
+	if r != nil {
+		attrs = append(attrs, "method", r.Method, "path", r.URL.Path)
+	}
+	s.log().Warn("api error", attrs...)
 	var body errorBody
 	body.Error.Message = msg
 	body.Error.Type = "server_error"

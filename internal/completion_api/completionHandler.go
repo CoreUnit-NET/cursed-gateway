@@ -18,7 +18,7 @@ type CompletionsRequest struct {
 func (h *Handler) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	var req CompletionsRequest
 	if err := readJSONBody(r, h.Server.maxBody(), &req); err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	chat := ChatCompletionRequest{
