@@ -40,10 +40,11 @@ type Client struct {
 	ClientVersion string // e.g. cli-YYYY.MM.DD-hash
 	Device        DeviceIDs
 
-	mu       sync.Mutex
-	agentURL string // memoized GetServerConfig origin
-	models   map[string]Model
-	modelsAt time.Time
+	mu         sync.Mutex
+	agentURL   string // memoized GetServerConfig origin
+	models     map[string]Model
+	modelsList []Model
+	modelsAt   time.Time
 }
 
 func (c *Client) httpClient() *http.Client {

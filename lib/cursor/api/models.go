@@ -95,8 +95,26 @@ func LiteralModelSelection(modelID string) ModelSelection {
 	}
 }
 
+// CachedModels returns a copy of the in-process catalog when the TTL is still valid.
+func (c *Client) CachedModels() []Model {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.modelsList) == 0 || time.Since(c.modelsAt) > modelCacheTTL {
+		return nil
+	}
+	out := make([]Model, len(c.modelsList))
+	copy(out, c.modelsList)
+	return out
+}
+
 // ListModels calls AiService/AvailableModels; on failure returns a small fallback list.
 func (c *Client) ListModels(ctx context.Context, accessToken string) ([]Model, error) {
+	if cached := c.CachedModels(); len(cached) > 0 {
+		return cached, nil
+	}
 	models, err := c.fetchAvailableModels(ctx, accessToken)
 	if err != nil || len(models) == 0 {
 		if err != nil {
@@ -172,8 +190,10 @@ func (c *Client) storeModelCache(models []Model) {
 		}
 		byID[m.ID] = m
 	}
+	list := append([]Model(nil), models...)
 	c.mu.Lock()
 	c.models = byID
+	c.modelsList = list
 	c.modelsAt = time.Now()
 	c.mu.Unlock()
 }
