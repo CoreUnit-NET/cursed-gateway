@@ -36,7 +36,36 @@ type RunControl struct {
 	pw         *io.PipeWriter
 	pending    []PendingExec
 	preface    []StreamEvent // events pushed back by tool-call drains
+	usage      usageAcc
 	mu         sync.Mutex
+}
+
+// Usage returns the Path A token meter accumulated on this run so far.
+func (r *RunControl) Usage() Usage {
+	if r == nil {
+		return Usage{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.usage.snapshot()
+}
+
+func (r *RunControl) notePromptTokens(used int) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.usage.notePrompt(used)
+}
+
+func (r *RunControl) noteCompletionTokens(delta int) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.usage.noteCompletion(delta)
 }
 
 // Recv returns the next stream event, preferring any unread preface events.
@@ -392,8 +421,14 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 					out <- StreamEvent{Err: err, HTTPStatus: res.StatusCode}
 					return
 				}
+			case *cursorProto.AgentServerMessage_ConversationCheckpointUpdate:
+				if state := m.ConversationCheckpointUpdate; state != nil {
+					if td := state.GetTokenDetails(); td != nil {
+						rc.notePromptTokens(int(td.GetUsedTokens()))
+					}
+				}
 			case *cursorProto.AgentServerMessage_InteractionUpdate:
-				evs, ended := interactionEvents(m.InteractionUpdate)
+				evs, ended := interactionEvents(m.InteractionUpdate, rc)
 				for _, ev := range evs {
 					out <- ev
 				}
@@ -409,7 +444,7 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 	return rc, nil
 }
 
-func interactionEvents(update *cursorProto.InteractionUpdate) (events []StreamEvent, turnEnded bool) {
+func interactionEvents(update *cursorProto.InteractionUpdate, rc *RunControl) (events []StreamEvent, turnEnded bool) {
 	if update == nil {
 		return nil, false
 	}
@@ -418,6 +453,9 @@ func interactionEvents(update *cursorProto.InteractionUpdate) (events []StreamEv
 	}
 	if th := update.GetThinkingDelta(); th != nil && th.Text != "" {
 		events = append(events, StreamEvent{Text: th.Text, Thinking: true})
+	}
+	if delta := update.GetTokenDelta(); delta != nil {
+		rc.noteCompletionTokens(int(delta.GetTokens()))
 	}
 	if update.GetTurnEnded() != nil {
 		return events, true
