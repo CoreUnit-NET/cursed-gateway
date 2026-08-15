@@ -1,6 +1,7 @@
 package cursor_api_sdk
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -239,6 +240,126 @@ func TestBuildRunPayloadSelectionUsesWireModelID(t *testing.T) {
 	}
 	if got := run.RequestedModel.GetModelId(); got != "claude-4.5-haiku-thinking" {
 		t.Fatalf("RequestedModel.model_id = %q", got)
+	}
+}
+
+func TestParseChatMessagesKeepsActionImages(t *testing.T) {
+	png, err := json.Marshal([]map[string]any{
+		{"type": "text", "text": "describe"},
+		{"type": "image_url", "image_url": map[string]string{
+			"url": "data:image/png;base64," + tinyPNGBase64,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var action ChatMessage
+	if err := json.Unmarshal([]byte(`{"role":"user","content":`+string(png)+`}`), &action); err != nil {
+		t.Fatal(err)
+	}
+	parsed := ParseChatMessages([]ChatMessage{
+		{Role: "user", Content: "earlier", Images: []Image{{Bytes: []byte("old"), MimeType: "image/png", Filename: "old.png"}}},
+		{Role: "assistant", Content: "ok"},
+		action,
+	})
+	if parsed.UserText != "describe" {
+		t.Fatalf("user = %q", parsed.UserText)
+	}
+	if len(parsed.UserImages) != 1 {
+		t.Fatalf("UserImages = %d, want 1", len(parsed.UserImages))
+	}
+	if len(parsed.Turns) != 1 || parsed.Turns[0].UserText != "earlier" {
+		t.Fatalf("turns = %#v", parsed.Turns)
+	}
+}
+
+func TestParseChatMessagesImageOnlyAction(t *testing.T) {
+	raw := `{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,` + tinyPNGBase64 + `"}}]}`
+	var msg ChatMessage
+	if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+		t.Fatal(err)
+	}
+	parsed := ParseChatMessages([]ChatMessage{msg})
+	if parsed.UserText != "" {
+		t.Fatalf("user text = %q, want empty", parsed.UserText)
+	}
+	if len(parsed.UserImages) != 1 {
+		t.Fatalf("UserImages = %d", len(parsed.UserImages))
+	}
+}
+
+func TestBuildRunPayloadAttachesSelectedImages(t *testing.T) {
+	png, err := base64.StdEncoding.DecodeString(tinyPNGBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := BuildRunPayload("composer-2.5", ParsedChat{
+		SystemPrompt: "sys",
+		UserText:     "what is this?",
+		UserImages: []Image{{
+			Bytes:    png,
+			MimeType: "image/png",
+			Filename: "dot.png",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg cursorProto.AgentClientMessage
+	if err := proto.Unmarshal(payload.RequestBytes, &msg); err != nil {
+		t.Fatal(err)
+	}
+	uma := msg.GetRunRequest().GetAction().GetUserMessageAction()
+	if uma == nil || uma.UserMessage == nil {
+		t.Fatal("missing user message action")
+	}
+	sc := uma.UserMessage.GetSelectedContext()
+	if sc == nil || len(sc.SelectedImages) != 1 {
+		t.Fatalf("selected images = %#v", sc)
+	}
+	img := sc.SelectedImages[0]
+	if img.Path != "dot.png" || img.MimeType != "image/png" {
+		t.Fatalf("image meta = %#v", img)
+	}
+	bd := img.GetBlobIdWithData()
+	if bd == nil || len(bd.BlobId) != 32 || string(bd.Data) != string(png) {
+		t.Fatalf("blobIdWithData = %#v", bd)
+	}
+	key := hex.EncodeToString(bd.BlobId)
+	if got := payload.BlobStore[key]; string(got) != string(png) {
+		t.Fatalf("blob store missing image bytes for %s", key)
+	}
+}
+
+func TestBuildRunPayloadImageOnlyOK(t *testing.T) {
+	png, err := base64.StdEncoding.DecodeString(tinyPNGBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := BuildRunPayload("composer-2.5", ParsedChat{
+		SystemPrompt: "sys",
+		UserImages:   []Image{{Bytes: png, MimeType: "image/png", Filename: "dot.png"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg cursorProto.AgentClientMessage
+	if err := proto.Unmarshal(payload.RequestBytes, &msg); err != nil {
+		t.Fatal(err)
+	}
+	uma := msg.GetRunRequest().GetAction().GetUserMessageAction()
+	if uma.UserMessage.Text != "" {
+		t.Fatalf("text = %q", uma.UserMessage.Text)
+	}
+	if len(uma.UserMessage.GetSelectedContext().GetSelectedImages()) != 1 {
+		t.Fatal("expected one selected image")
+	}
+}
+
+func TestBuildRunPayloadMissingUserStillErrors(t *testing.T) {
+	_, err := BuildRunPayload("composer-2.5", ParsedChat{SystemPrompt: "sys"})
+	if err == nil {
+		t.Fatal("expected missing user error")
 	}
 }
 

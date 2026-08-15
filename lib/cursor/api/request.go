@@ -18,10 +18,12 @@ type ChatMessage struct {
 	Content    string           `json:"content"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
+	// Images are decoded from multipart content (data/base64 only); not serialized.
+	Images []Image `json:"-"`
 }
 
 // UnmarshalJSON accepts OpenAI content as a string, null, or array of parts
-// (OpenCode / Chat Completions multipart) and flattens it to text.
+// (OpenCode / Chat Completions multipart): flattens text and extracts images.
 func (m *ChatMessage) UnmarshalJSON(data []byte) error {
 	type alias ChatMessage
 	aux := &struct {
@@ -36,6 +38,7 @@ func (m *ChatMessage) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	m.Content = text
+	m.Images = extractImagesFromContent(aux.Content)
 	return nil
 }
 
@@ -107,15 +110,20 @@ type ParsedChat struct {
 	SystemPrompt string
 	Turns        []ConversationTurn
 	UserText     string
-	ToolResults  []ToolResultInfo
+	// UserImages are action-turn attachments only (history stays text-only).
+	UserImages  []Image
+	ToolResults []ToolResultInfo
 }
 
 // ParseChatMessages splits OpenAI messages into system / history / current user / tool results.
+// Image parts on the action user are kept; prior user images are dropped (history text-only).
 func ParseChatMessages(messages []ChatMessage) ParsedChat {
 	var systems []string
 	var turns []ConversationTurn
 	var pendingUser string
+	var pendingImages []Image
 	var toolResults []ToolResultInfo
+	var havePendingUser bool
 
 	for _, m := range messages {
 		role := strings.ToLower(strings.TrimSpace(m.Role))
@@ -131,16 +139,21 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 				Content:    m.Content,
 			})
 		case "user":
-			if pendingUser != "" {
+			// History turns are text-only; prior images are not carried forward.
+			if havePendingUser && pendingUser != "" {
 				turns = append(turns, ConversationTurn{UserText: pendingUser})
 			}
 			pendingUser = text
+			pendingImages = append([]Image(nil), m.Images...)
+			havePendingUser = true
 		case "assistant":
-			// Skip tool_calls-only assistants with no text (continuation is via mcpResult).
-			if pendingUser != "" {
+			// Skip tool_calls-only assistants with no prior user text (continuation is via mcpResult).
+			if havePendingUser && pendingUser != "" {
 				turns = append(turns, ConversationTurn{UserText: pendingUser, AssistantText: text})
-				pendingUser = ""
 			}
+			pendingUser = ""
+			pendingImages = nil
+			havePendingUser = false
 		}
 	}
 
@@ -150,7 +163,8 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 	}
 
 	userText := pendingUser
-	if userText == "" && len(toolResults) == 0 && len(turns) > 0 {
+	userImages := pendingImages
+	if !havePendingUser && userText == "" && len(userImages) == 0 && len(toolResults) == 0 && len(turns) > 0 {
 		last := turns[len(turns)-1]
 		turns = turns[:len(turns)-1]
 		userText = last.UserText
@@ -160,6 +174,7 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 		SystemPrompt: system,
 		Turns:        turns,
 		UserText:     userText,
+		UserImages:   userImages,
 		ToolResults:  toolResults,
 	}
 }
@@ -204,7 +219,7 @@ func storeJSONBlob(store map[string][]byte, v any) ([]byte, error) {
 // Every ConversationState Structure `bytes` field is a 32-byte sha256 blob id;
 // raw bytes live only in RunPayload.BlobStore (served by handleKV getBlob).
 func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayload, error) {
-	if strings.TrimSpace(parsed.UserText) == "" {
+	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 {
 		return nil, fmt.Errorf("chat request missing user message")
 	}
 	if sel.PublicID == "" {
@@ -318,15 +333,20 @@ func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayloa
 		})
 	}
 
+	actionUser := &cursorProto.UserMessage{
+		Text:      parsed.UserText,
+		MessageId: newUUID(),
+	}
+	if imgs := selectedImagesFromParsed(blobStore, parsed.UserImages); len(imgs) > 0 {
+		actionUser.SelectedContext = &cursorProto.SelectedContext{SelectedImages: imgs}
+	}
+
 	runReq := &cursorProto.AgentRunRequest{
 		ConversationState: state,
 		Action: &cursorProto.ConversationAction{
 			Action: &cursorProto.ConversationAction_UserMessageAction{
 				UserMessageAction: &cursorProto.UserMessageAction{
-					UserMessage: &cursorProto.UserMessage{
-						Text:      parsed.UserText,
-						MessageId: newUUID(),
-					},
+					UserMessage: actionUser,
 				},
 			},
 		},
@@ -357,6 +377,41 @@ func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayloa
 		Conversation: convID,
 		ModelID:      sel.PublicID,
 	}, nil
+}
+
+// selectedImagesFromParsed blobifies action-user images and builds SelectedImage
+// messages with BlobIdWithData (otto proxy.ts 1316–1344).
+func selectedImagesFromParsed(store map[string][]byte, images []Image) []*cursorProto.SelectedImage {
+	if len(images) == 0 {
+		return nil
+	}
+	out := make([]*cursorProto.SelectedImage, 0, len(images))
+	for _, img := range images {
+		if len(img.Bytes) == 0 {
+			continue
+		}
+		id := storeBlob(store, img.Bytes)
+		mime := strings.TrimSpace(img.MimeType)
+		if mime == "" {
+			mime = "image/png"
+		}
+		path := strings.TrimSpace(img.Filename)
+		if path == "" {
+			path = "attachment"
+		}
+		out = append(out, &cursorProto.SelectedImage{
+			Uuid:     newUUID(),
+			Path:     path,
+			MimeType: mime,
+			DataOrBlobId: &cursorProto.SelectedImage_BlobIdWithData{
+				BlobIdWithData: &cursorProto.SelectedImage_BlobIdWithDataMsg{
+					BlobId: id,
+					Data:   append([]byte(nil), img.Bytes...),
+				},
+			},
+		})
+	}
+	return out
 }
 
 func newUUID() string {

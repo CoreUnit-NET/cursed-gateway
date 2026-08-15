@@ -32,7 +32,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest) {
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
-	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.ToolResults) == 0 {
+	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 {
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
@@ -178,7 +178,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest) {
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
-	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.ToolResults) == 0 {
+	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 {
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
