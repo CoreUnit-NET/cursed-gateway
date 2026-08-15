@@ -83,6 +83,84 @@ func TestListModelsUsesCacheWithoutPool(t *testing.T) {
 	}
 }
 
+type multiPool struct {
+	ids         []string
+	ensures     []string
+	used        []string
+	rateLimited []string
+}
+
+func (p *multiPool) PickCandidates() []*cursor_account_sdk.Account {
+	out := make([]*cursor_account_sdk.Account, len(p.ids))
+	for i, id := range p.ids {
+		out[i] = &cursor_account_sdk.Account{ID: id, Access: "tok-" + id}
+	}
+	return out
+}
+
+func (p *multiPool) EnsureAccess(ctx context.Context, id string) (*cursor_account_sdk.Account, error) {
+	p.ensures = append(p.ensures, id)
+	return &cursor_account_sdk.Account{ID: id, Access: "tok-" + id}, nil
+}
+
+func (p *multiPool) MarkUsed(id string) { p.used = append(p.used, id) }
+
+func (p *multiPool) MarkRateLimited(id string) {
+	p.rateLimited = append(p.rateLimited, id)
+}
+
+func TestWithAccessDoesNotFailoverOnMissingBlob(t *testing.T) {
+	pool := &multiPool{ids: []string{"s1", "s2"}}
+	srv := &Server{Pool: pool, Log: slog.Default()}
+	calls := 0
+	err := srv.withAccess(context.Background(), func(access string) error {
+		calls++
+		return &cursor_api_sdk.APIError{
+			Status:  502,
+			Code:    "internal",
+			Message: "Blob not found",
+			Err:     cursor_api_sdk.ErrMissingBlob,
+		}
+	})
+	if !cursor_api_sdk.IsMissingBlob(err) {
+		t.Fatalf("err = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("fn calls = %d, want 1 (no account rotation)", calls)
+	}
+	if len(pool.ensures) != 1 || pool.ensures[0] != "s1" {
+		t.Fatalf("ensures = %#v", pool.ensures)
+	}
+	if len(pool.used) != 0 {
+		t.Fatalf("MarkUsed should not run: %#v", pool.used)
+	}
+}
+
+func TestWithAccessFailoversOnRateLimit(t *testing.T) {
+	pool := &multiPool{ids: []string{"s1", "s2"}}
+	srv := &Server{Pool: pool, Log: slog.Default()}
+	calls := 0
+	err := srv.withAccess(context.Background(), func(access string) error {
+		calls++
+		if access == "tok-s1" {
+			return cursor_api_sdk.ErrRateLimited
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("fn calls = %d, want 2", calls)
+	}
+	if len(pool.rateLimited) != 1 || pool.rateLimited[0] != "s1" {
+		t.Fatalf("rateLimited = %#v", pool.rateLimited)
+	}
+	if len(pool.used) != 1 || pool.used[0] != "s2" {
+		t.Fatalf("used = %#v", pool.used)
+	}
+}
+
 func TestWriteAPIErrorLogsWarn(t *testing.T) {
 	var logBuf bytes.Buffer
 	srv := &Server{

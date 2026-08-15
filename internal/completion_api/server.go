@@ -88,6 +88,12 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 			return nil
 		}
 		last = err
+		// Missing-blob is a bad payload (inlined Structure bytes). Rotating
+		// accounts retries the same broken request and only burns sessions.
+		if cursor_api_sdk.IsMissingBlob(err) {
+			s.log().Error("missing blob; not rotating accounts", "session", acc.ID, "err", err)
+			return err
+		}
 		if errors.Is(err, cursor_api_sdk.ErrRateLimited) {
 			s.Pool.MarkRateLimited(acc.ID)
 			s.log().Warn("rate limited; cooling account", "session", acc.ID)
