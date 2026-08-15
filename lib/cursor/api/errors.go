@@ -13,7 +13,24 @@ var (
 	ErrIncompleteRun    = errors.New("cursor run ended without turn_ended")
 	ErrModelUnavailable = errors.New("cursor model unavailable for agent")
 	ErrBadModelName     = errors.New("cursor bad model name")
+	// ErrMissingBlob is a client payload bug (Structure bytes were not blob ids).
+	// Account failover must not rotate — the same payload will fail again.
+	ErrMissingBlob = errors.New("cursor missing blob")
 )
+
+// IsMissingBlob reports whether err looks like Cursor "Blob not found"
+// (inlined Structure bytes treated as sha256 ids).
+func IsMissingBlob(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrMissingBlob) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "blob not found") ||
+		strings.Contains(msg, "missing blob")
+}
 
 // APIError carries HTTP status and optional Connect error details.
 type APIError struct {
@@ -79,7 +96,11 @@ func classifyHTTP(status int, body string) error {
 	case status == 401 || status == 403:
 		return &APIError{Status: status, Message: body, Err: ErrUnauthorized}
 	case status >= 500:
-		return &APIError{Status: status, Message: body, Err: ErrUpstream}
+		err := ErrUpstream
+		if IsMissingBlob(errors.New(body)) {
+			err = ErrMissingBlob
+		}
+		return &APIError{Status: status, Message: body, Err: err}
 	default:
 		return &APIError{Status: status, Message: body, Err: ErrUpstream}
 	}
@@ -112,6 +133,9 @@ func classifyConnectCode(code, message string, dbg connectDebugInfo) error {
 		}
 	default:
 		err.Err = ErrUpstream
+	}
+	if IsMissingBlob(errors.New(message)) || IsMissingBlob(errors.New(dbg.Detail)) {
+		err.Err = ErrMissingBlob
 	}
 	return err
 }

@@ -2,6 +2,7 @@ package cursor_api_sdk
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -62,5 +63,38 @@ func TestFormatModelParameters(t *testing.T) {
 	})
 	if got != "thinking=true,fast=false" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestIsMissingBlob(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "sentinel", err: ErrMissingBlob, want: true},
+		{name: "wrapped", err: fmt.Errorf("run failed: %w", ErrMissingBlob), want: true},
+		{name: "blob not found", err: fmt.Errorf("Connect error internal: Blob not found"), want: true},
+		{name: "missing blob", err: fmt.Errorf("missing blob for id abc"), want: true},
+		{name: "unrelated", err: ErrRateLimited, want: false},
+		{name: "api upstream blob", err: &APIError{Status: 500, Message: "Blob not found", Err: ErrMissingBlob}, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsMissingBlob(tc.err); got != tc.want {
+				t.Fatalf("IsMissingBlob(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClassifyHTTPMissingBlob(t *testing.T) {
+	err := classifyHTTP(502, "Connect error internal: Blob not found")
+	if !errors.Is(err, ErrMissingBlob) {
+		t.Fatalf("err = %v", err)
+	}
+	if !IsMissingBlob(err) {
+		t.Fatal("expected IsMissingBlob")
 	}
 }
