@@ -67,24 +67,29 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		}
 		if len(calls) > 0 {
 			h.Server.bridges().park(bridgeKey, br.RC, model)
-			writeNonStreamToolCalls(dw, id, created, model, text, calls)
+			writeNonStreamToolCalls(dw, id, created, model, text, calls, br.RC.Usage())
 			h.Server.log().Info("chat completion",
 				"model", model,
 				"stream", false,
 				"finish", "tool_calls",
 				"tool_calls", len(calls),
 				"resumed", true,
+				"prompt_tokens", br.RC.Usage().PromptTokens,
+				"completion_tokens", br.RC.Usage().CompletionTokens,
 			)
 			return
 		}
 		br.RC.Close()
-		writeNonStreamText(dw, id, created, model, text)
+		u := br.RC.Usage()
+		writeNonStreamText(dw, id, created, model, text, u)
 		h.Server.log().Info("chat completion",
 			"model", model,
 			"stream", false,
 			"finish", "stop",
 			"chars", len(text),
 			"resumed", true,
+			"prompt_tokens", u.PromptTokens,
+			"completion_tokens", u.CompletionTokens,
 		)
 		return
 	}
@@ -102,6 +107,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	var parkedRC *cursor_api_sdk.RunControl
 	var modelID string
 	var resolvedSel cursor_api_sdk.ModelSelection
+	var runUsage cursor_api_sdk.Usage
 	err = h.Server.withAccess(ctx, func(access string) error {
 		sel, err := h.Server.API.ResolveModelSelection(ctx, access, req.Model)
 		if err != nil {
@@ -128,6 +134,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
 		text, calls = t, c
+		runUsage = rc.Usage()
 		if len(calls) > 0 {
 			parkedRC = rc
 			return nil
@@ -146,21 +153,25 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	setCursorModelHeaders(dw.Header(), resolvedSel)
 	if len(calls) > 0 && parkedRC != nil {
 		h.Server.bridges().park(bridgeKey, parkedRC, modelID)
-		writeNonStreamToolCalls(dw, id, created, modelID, text, calls)
+		writeNonStreamToolCalls(dw, id, created, modelID, text, calls, runUsage)
 		h.Server.log().Info("chat completion",
 			"model", modelID,
 			"stream", false,
 			"finish", "tool_calls",
 			"tool_calls", len(calls),
+			"prompt_tokens", runUsage.PromptTokens,
+			"completion_tokens", runUsage.CompletionTokens,
 		)
 		return
 	}
-	writeNonStreamText(dw, id, created, modelID, text)
+	writeNonStreamText(dw, id, created, modelID, text, runUsage)
 	h.Server.log().Info("chat completion",
 		"model", modelID,
 		"stream", false,
 		"finish", "stop",
 		"chars", len(text),
+		"prompt_tokens", runUsage.PromptTokens,
+		"completion_tokens", runUsage.CompletionTokens,
 	)
 }
 
@@ -307,6 +318,10 @@ func streamFromRun(
 			if err := writeSSEFinish(dw, id, created, model, "tool_calls"); err != nil {
 				return err
 			}
+			u := rc.Usage()
+			if err := writeSSEUsage(dw, id, created, model, u); err != nil {
+				return err
+			}
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
 			dw.Flush()
 			h.Server.bridges().park(bridgeKey, rc, model)
@@ -316,6 +331,8 @@ func streamFromRun(
 				"stream", true,
 				"finish", "tool_calls",
 				"tool_calls", len(calls),
+				"prompt_tokens", u.PromptTokens,
+				"completion_tokens", u.CompletionTokens,
 			)
 			return nil
 		}
@@ -326,12 +343,18 @@ func streamFromRun(
 			if err := writeSSEFinish(dw, id, created, model, "stop"); err != nil {
 				return err
 			}
+			u := rc.Usage()
+			if err := writeSSEUsage(dw, id, created, model, u); err != nil {
+				return err
+			}
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
 			dw.Flush()
 			h.Server.log().Info("chat completion",
 				"model", model,
 				"stream", true,
 				"finish", "stop",
+				"prompt_tokens", u.PromptTokens,
+				"completion_tokens", u.CompletionTokens,
 			)
 			return nil
 		}
@@ -350,6 +373,8 @@ func streamFromRun(
 	if !*committed {
 		return cursor_api_sdk.ErrIncompleteRun
 	}
+	u := rc.Usage()
+	_ = writeSSEUsage(dw, id, created, model, u)
 	_, _ = dw.Write([]byte("data: [DONE]\n\n"))
 	dw.Flush()
 	return nil
@@ -415,7 +440,7 @@ func collectMoreToolCalls(rc *cursor_api_sdk.RunControl, first cursor_api_sdk.Pe
 	return out
 }
 
-func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text string) {
+func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text string, u cursor_api_sdk.Usage) {
 	stop := "stop"
 	resp := chatCompletionResponse{
 		ID:      id,
@@ -427,14 +452,14 @@ func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text
 			Message:      &chatMsg{Role: "assistant", Content: text},
 			FinishReason: &stop,
 		}},
-		Usage: usage{},
+		Usage: toAPIUsage(u),
 	}
 	dw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(dw).Encode(resp)
 	_ = dw.Commit()
 }
 
-func writeNonStreamToolCalls(dw *delayedWriter, id string, created int64, model, text string, calls []cursor_api_sdk.PendingExec) {
+func writeNonStreamToolCalls(dw *delayedWriter, id string, created int64, model, text string, calls []cursor_api_sdk.PendingExec, u cursor_api_sdk.Usage) {
 	reason := "tool_calls"
 	toolCalls := make([]cursor_api_sdk.OpenAIToolCall, 0, len(calls))
 	for _, pe := range calls {
@@ -457,11 +482,19 @@ func writeNonStreamToolCalls(dw *delayedWriter, id string, created int64, model,
 			},
 			FinishReason: &reason,
 		}},
-		Usage: usage{},
+		Usage: toAPIUsage(u),
 	}
 	dw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(dw).Encode(resp)
 	_ = dw.Commit()
+}
+
+func toAPIUsage(u cursor_api_sdk.Usage) *usage {
+	return &usage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.TotalTokens,
+	}
 }
 
 func writeSSEContent(w http.ResponseWriter, id string, created int64, model, content string) error {
@@ -515,6 +548,19 @@ func writeSSEFinish(w http.ResponseWriter, id string, created int64, model, reas
 			Delta:        &chatDelta{},
 			FinishReason: &r,
 		}},
+	}
+	return writeSSEData(w, payload)
+}
+
+// writeSSEUsage emits the OpenAI usage chunk with empty choices (oauth SSE pattern).
+func writeSSEUsage(w http.ResponseWriter, id string, created int64, model string, u cursor_api_sdk.Usage) error {
+	payload := chatCompletionResponse{
+		ID:      id,
+		Object:  "chat.completion.chunk",
+		Created: created,
+		Model:   model,
+		Choices: []chatCompletionChoice{},
+		Usage:   toAPIUsage(u),
 	}
 	return writeSSEData(w, payload)
 }
