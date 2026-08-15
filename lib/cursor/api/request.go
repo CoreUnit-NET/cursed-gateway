@@ -179,9 +179,30 @@ func BuildRunPayload(modelID string, parsed ParsedChat) (*RunPayload, error) {
 	return BuildRunPayloadSelection(LiteralModelSelection(modelID), parsed)
 }
 
+// storeBlob content-addresses raw bytes: 32-byte sha256 id on the wire,
+// full payload in BlobStore under hex(id). Cursor Structure `bytes` fields
+// expect ids, not inlined protobuf (see oauth proxy storeBlob).
+func storeBlob(store map[string][]byte, raw []byte) []byte {
+	sum := sha256.Sum256(raw)
+	id := append([]byte(nil), sum[:]...)
+	store[hex.EncodeToString(id)] = append([]byte(nil), raw...)
+	return id
+}
+
+func storeJSONBlob(store map[string][]byte, v any) ([]byte, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return storeBlob(store, raw), nil
+}
+
 // BuildRunPayloadSelection builds a run request using catalog-resolved model identity.
 // ModelDetails.model_id and RequestedModel.model_id use the agent wire id (legacy slug
 // when present). OpenAI response model id stays the public/catalog id.
+//
+// Every ConversationState Structure `bytes` field is a 32-byte sha256 blob id;
+// raw bytes live only in RunPayload.BlobStore (served by handleKV getBlob).
 func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayload, error) {
 	if strings.TrimSpace(parsed.UserText) == "" {
 		return nil, fmt.Errorf("chat request missing user message")
@@ -198,59 +219,84 @@ func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayloa
 
 	blobStore := map[string][]byte{}
 
-	turnBytes := make([][]byte, 0, len(parsed.Turns))
-	for _, turn := range parsed.Turns {
-		userMsg := &cursorProto.UserMessage{
-			Text:      turn.UserText,
-			MessageId: newUUID(),
-		}
-		userMsgBytes, err := proto.Marshal(userMsg)
-		if err != nil {
-			return nil, err
-		}
-		var stepBytes [][]byte
-		if turn.AssistantText != "" {
-			step := &cursorProto.ConversationStep{
-				Message: &cursorProto.ConversationStep_AssistantMessage{
-					AssistantMessage: &cursorProto.AssistantMessage{Text: turn.AssistantText},
-				},
-			}
-			b, err := proto.Marshal(step)
-			if err != nil {
-				return nil, err
-			}
-			stepBytes = append(stepBytes, b)
-		}
-		agentTurn := &cursorProto.AgentConversationTurnStructure{
-			UserMessage: userMsgBytes,
-			Steps:       stepBytes,
-		}
-		turnStruct := &cursorProto.ConversationTurnStructure{
-			Turn: &cursorProto.ConversationTurnStructure_AgentConversationTurn{
-				AgentConversationTurn: agentTurn,
-			},
-		}
-		tb, err := proto.Marshal(turnStruct)
-		if err != nil {
-			return nil, err
-		}
-		turnBytes = append(turnBytes, tb)
-	}
-
-	systemJSON, err := json.Marshal(map[string]string{
+	// Cursor builds the model prompt from rootPromptMessagesJson, not turns[] alone.
+	root := make([][]byte, 0, 1+2*len(parsed.Turns))
+	sysID, err := storeJSONBlob(blobStore, map[string]any{
 		"role":    "system",
 		"content": parsed.SystemPrompt,
 	})
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(systemJSON)
-	blobStore[hex.EncodeToString(sum[:])] = append([]byte(nil), systemJSON...)
+	root = append(root, sysID)
+	for _, turn := range parsed.Turns {
+		userRootID, err := storeJSONBlob(blobStore, map[string]any{
+			"role": "user",
+			"content": []any{
+				map[string]string{"type": "text", "text": turn.UserText},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		root = append(root, userRootID)
+		if turn.AssistantText != "" {
+			asstRootID, err := storeJSONBlob(blobStore, map[string]any{
+				"role": "assistant",
+				"content": []any{
+					map[string]string{"type": "text", "text": turn.AssistantText},
+				},
+			})
+			if err != nil {
+				return nil, err
+			}
+			root = append(root, asstRootID)
+		}
+	}
+
+	// turns[]: blobify nested userMsg / steps, then the turn envelope.
+	turnIDs := make([][]byte, 0, len(parsed.Turns))
+	for _, turn := range parsed.Turns {
+		userMsgBytes, err := proto.Marshal(&cursorProto.UserMessage{
+			Text:      turn.UserText,
+			MessageId: newUUID(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		userMsgID := storeBlob(blobStore, userMsgBytes)
+
+		var stepIDs [][]byte
+		if turn.AssistantText != "" {
+			stepBytes, err := proto.Marshal(&cursorProto.ConversationStep{
+				Message: &cursorProto.ConversationStep_AssistantMessage{
+					AssistantMessage: &cursorProto.AssistantMessage{Text: turn.AssistantText},
+				},
+			})
+			if err != nil {
+				return nil, err
+			}
+			stepIDs = append(stepIDs, storeBlob(blobStore, stepBytes))
+		}
+
+		turnBytes, err := proto.Marshal(&cursorProto.ConversationTurnStructure{
+			Turn: &cursorProto.ConversationTurnStructure_AgentConversationTurn{
+				AgentConversationTurn: &cursorProto.AgentConversationTurnStructure{
+					UserMessage: userMsgID,
+					Steps:       stepIDs,
+				},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		turnIDs = append(turnIDs, storeBlob(blobStore, turnBytes))
+	}
 
 	convID := newUUID()
 	state := &cursorProto.ConversationStateStructure{
-		RootPromptMessagesJson: [][]byte{sum[:]},
-		Turns:                  turnBytes,
+		RootPromptMessagesJson: root,
+		Turns:                  turnIDs,
 		Todos:                  nil,
 		PendingToolCalls:       nil,
 		PreviousWorkspaceUris:  nil,

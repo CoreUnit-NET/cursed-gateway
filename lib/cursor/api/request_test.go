@@ -1,7 +1,9 @@
 package cursor_api_sdk
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	cursorProto "github.com/CoreUnit-NET/cursed-gateway/lib/cursorProto"
@@ -122,6 +124,89 @@ func TestBuildRunPayload(t *testing.T) {
 	}
 	if len(payload.BlobStore) != 1 {
 		t.Fatalf("blob store size = %d", len(payload.BlobStore))
+	}
+}
+
+func TestBuildRunPayloadBlobifiesMultiTurn(t *testing.T) {
+	payload, err := BuildRunPayload("composer-2.5", ParsedChat{
+		SystemPrompt: "sys",
+		Turns: []ConversationTurn{
+			{UserText: "hi", AssistantText: "hello"},
+			{UserText: "again", AssistantText: "ok"},
+		},
+		UserText: "bye",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var msg cursorProto.AgentClientMessage
+	if err := proto.Unmarshal(payload.RequestBytes, &msg); err != nil {
+		t.Fatal(err)
+	}
+	run := msg.GetRunRequest()
+	if run == nil || run.ConversationState == nil {
+		t.Fatal("missing run / conversation state")
+	}
+	state := run.ConversationState
+
+	// system + 2 user + 2 assistant root role blobs
+	if got := len(state.RootPromptMessagesJson); got != 5 {
+		t.Fatalf("rootPromptMessagesJson len = %d, want 5", got)
+	}
+	if got := len(state.Turns); got != 2 {
+		t.Fatalf("turns len = %d, want 2", got)
+	}
+
+	assertBlobID := func(t *testing.T, label string, id []byte) {
+		t.Helper()
+		if len(id) != 32 {
+			t.Fatalf("%s: id len = %d, want 32", label, len(id))
+		}
+		key := hex.EncodeToString(id)
+		raw, ok := payload.BlobStore[key]
+		if !ok {
+			t.Fatalf("%s: hex id %s not in BlobStore", label, key)
+		}
+		if len(raw) == 0 {
+			t.Fatalf("%s: empty blob data", label)
+		}
+		// Structure slots must be ids, not inlined protobuf payloads.
+		if len(raw) == 32 && hex.EncodeToString(raw) == key {
+			t.Fatalf("%s: blob data looks like another id (unexpected)", label)
+		}
+	}
+
+	for i, id := range state.RootPromptMessagesJson {
+		assertBlobID(t, fmt.Sprintf("root[%d]", i), id)
+	}
+	for i, turnID := range state.Turns {
+		assertBlobID(t, fmt.Sprintf("turn[%d]", i), turnID)
+		turnRaw := payload.BlobStore[hex.EncodeToString(turnID)]
+		var turnStruct cursorProto.ConversationTurnStructure
+		if err := proto.Unmarshal(turnRaw, &turnStruct); err != nil {
+			t.Fatalf("turn[%d] unmarshal: %v", i, err)
+		}
+		agent := turnStruct.GetAgentConversationTurn()
+		if agent == nil {
+			t.Fatalf("turn[%d]: missing agent turn", i)
+		}
+		assertBlobID(t, fmt.Sprintf("turn[%d].userMessage", i), agent.UserMessage)
+		if len(agent.Steps) != 1 {
+			t.Fatalf("turn[%d]: steps = %d, want 1", i, len(agent.Steps))
+		}
+		assertBlobID(t, fmt.Sprintf("turn[%d].step[0]", i), agent.Steps[0])
+	}
+
+	// Live user message stays on the action (not only history).
+	uma := run.GetAction().GetUserMessageAction()
+	if uma == nil || uma.UserMessage == nil || uma.UserMessage.Text != "bye" {
+		t.Fatalf("user message action = %#v", uma)
+	}
+
+	// Expect: 5 root JSON + 2 userMsg + 2 steps + 2 turn envelopes = 11
+	if got := len(payload.BlobStore); got != 11 {
+		t.Fatalf("BlobStore size = %d, want 11", got)
 	}
 }
 
