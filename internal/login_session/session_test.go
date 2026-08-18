@@ -1,10 +1,15 @@
 package login_session
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +87,112 @@ func TestStoreImportUpsertAndRemove(t *testing.T) {
 	}
 	if len(store.List()) != 0 {
 		t.Fatal("expected empty store")
+	}
+}
+
+func TestStoreFindRemoveMatchAndPublicID(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(filepath.Join(dir, "data.json"), &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	acc := &cursor_account_sdk.Account{
+		ID:      "store-uuid",
+		Subject: "user_find",
+		Tier:    "pro",
+		Access:  "tok",
+		Refresh: "ref",
+	}
+	if err := store.Add(acc); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	byID, err := store.Find("store-uuid")
+	if err != nil || byID.Subject != "user_find" {
+		t.Fatalf("Find id: acc=%+v err=%v", byID, err)
+	}
+	bySub, err := store.Find("user_find")
+	if err != nil || bySub.ID != "store-uuid" {
+		t.Fatalf("Find subject: acc=%+v err=%v", bySub, err)
+	}
+	if _, err := store.Find(""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Find empty err=%v", err)
+	}
+	if PublicAccountID(acc) != "user_find" {
+		t.Fatalf("PublicAccountID=%q", PublicAccountID(acc))
+	}
+	if PublicAccountID(&cursor_account_sdk.Account{ID: "only-store"}) != "only-store" {
+		t.Fatal("expected store id fallback")
+	}
+
+	n, err := store.RemoveMatch("user_find")
+	if err != nil || n != 1 {
+		t.Fatalf("RemoveMatch: n=%d err=%v", n, err)
+	}
+	if _, err := store.Find("user_find"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Find after remove err=%v", err)
+	}
+}
+
+func TestTestAndStoreRefreshThenUpsert(t *testing.T) {
+	access := fakeJWT(t, "user_test", time.Now().Add(time.Hour))
+	refresh := fakeJWT(t, "user_test", time.Now().Add(24*time.Hour))
+	refreshSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); !strings.HasPrefix(got, "Bearer ") {
+			http.Error(w, "missing bearer", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"accessToken":  access,
+			"refreshToken": refresh,
+		})
+	}))
+	t.Cleanup(refreshSrv.Close)
+
+	dir := t.TempDir()
+	client := &cursor_account_sdk.Client{
+		HTTP: refreshSrv.Client(),
+		Endpoints: cursor_account_sdk.Endpoints{
+			RefreshURL: refreshSrv.URL,
+		},
+	}
+	store, err := NewStore(filepath.Join(dir, "data.json"), client)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	first, merged, err := store.TestAndStore(context.Background(), cursor_account_sdk.Credentials{
+		Refresh: "refresh-token",
+	})
+	if err != nil {
+		t.Fatalf("TestAndStore: %v", err)
+	}
+	if merged {
+		t.Fatal("first store should not merge")
+	}
+	if PublicAccountID(first) != "user_test" {
+		t.Fatalf("id=%q", PublicAccountID(first))
+	}
+
+	second, merged, err := store.TestAndStore(context.Background(), cursor_account_sdk.Credentials{
+		Refresh: "refresh-token",
+	})
+	if err != nil {
+		t.Fatalf("TestAndStore upsert: %v", err)
+	}
+	if !merged {
+		t.Fatal("second store should merge")
+	}
+	if second.ID != first.ID {
+		t.Fatalf("id changed %q -> %q", first.ID, second.ID)
+	}
+	if len(store.List()) != 1 {
+		t.Fatalf("len=%d, want 1", len(store.List()))
+	}
+
+	if _, _, err := store.TestAndStore(context.Background(), cursor_account_sdk.Credentials{}); !errors.Is(err, ErrInvalidImport) {
+		t.Fatalf("empty refresh err=%v", err)
 	}
 }
 

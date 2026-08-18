@@ -254,6 +254,71 @@ func (s *Store) Remove(id string) (removed int, err error) {
 	return removed, s.saveLocked()
 }
 
+// Find returns one session by store id or JWT subject.
+func (s *Store) Find(id string) (*cursor_account_sdk.Account, error) {
+	if id == "" {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.file.Sessions {
+		if r.ID == id {
+			return accountFromRecord(r), nil
+		}
+	}
+	for _, r := range s.file.Sessions {
+		if r.Subject != "" && r.Subject == id {
+			return accountFromRecord(r), nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// RemoveMatch deletes the session whose store id or JWT subject equals id.
+func (s *Store) RemoveMatch(id string) (removed int, err error) {
+	acc, err := s.Find(id)
+	if err != nil {
+		return 0, err
+	}
+	return s.Remove(acc.ID)
+}
+
+// ParseAuthPayload accepts Cursor-style token JSON (access/refresh variants).
+func ParseAuthPayload(data []byte) (cursor_account_sdk.Credentials, error) {
+	return parseImportCredentials(data)
+}
+
+// TestAndStore refreshes creds against Cursor, then upserts by subject.
+func (s *Store) TestAndStore(ctx context.Context, creds cursor_account_sdk.Credentials) (*cursor_account_sdk.Account, bool, error) {
+	if creds.Refresh == "" {
+		return nil, false, fmt.Errorf("%w: missing refresh token", ErrInvalidImport)
+	}
+	refreshed, err := s.client.RefreshToken(ctx, creds.Refresh)
+	if err != nil {
+		return nil, false, err
+	}
+	account, err := cursor_account_sdk.NewAccountFromCredentials(refreshed, time.Now())
+	if err != nil {
+		return nil, false, err
+	}
+	merged, err := s.UpsertBySubject(account)
+	if err != nil {
+		return nil, false, err
+	}
+	return account, merged, nil
+}
+
+// PublicAccountID is the Control API account id: JWT subject when present, else store id.
+func PublicAccountID(a *cursor_account_sdk.Account) string {
+	if a == nil {
+		return ""
+	}
+	if a.Subject != "" {
+		return a.Subject
+	}
+	return a.ID
+}
+
 // EnsureAccess refreshes the account if needed and persists the result.
 func (s *Store) EnsureAccess(ctx context.Context, id string) (*cursor_account_sdk.Account, error) {
 	return s.ensureAccess(ctx, id, false)
