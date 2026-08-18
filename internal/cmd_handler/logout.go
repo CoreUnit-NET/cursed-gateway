@@ -22,7 +22,12 @@ func Logout(ctx context.Context, s *settings.Settings, rt *Runtime) error {
 	if len(s.Args) > 0 {
 		id = s.Args[0]
 	}
-	n, err := store.Remove(id)
+	var n int
+	if id == "" {
+		n, err = store.Remove("")
+	} else {
+		n, err = store.RemoveMatch(id)
+	}
 	if err != nil {
 		return err
 	}

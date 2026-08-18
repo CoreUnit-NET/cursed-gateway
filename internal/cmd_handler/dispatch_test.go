@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/config"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 )
@@ -64,5 +65,85 @@ func TestDispatchVersionAndStubs(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no sessions") {
 		t.Fatalf("models err = %v", err)
+	}
+}
+
+func TestSessionsAndLogoutUsePublicAccountID(t *testing.T) {
+	dir := t.TempDir()
+	authPath := filepath.Join(dir, "data.json")
+	store, err := login_session.NewStore(authPath, &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	acc := &cursor_account_sdk.Account{
+		ID:        "store-uuid",
+		Subject:   "user_cli",
+		Tier:      "pro",
+		Access:    "tok",
+		Refresh:   "ref",
+		ExpiresAt: 123,
+	}
+	if err := store.Add(acc); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	var out bytes.Buffer
+	rt := &Runtime{Out: &out, Err: &out}
+	s := &settings.Settings{AuthPath: authPath}
+	if err := Sessions(context.Background(), s, rt); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.HasPrefix(got, "user_cli\t") {
+		t.Fatalf("sessions output = %q, want public id first", got)
+	}
+	if strings.Contains(got, "store-uuid") {
+		t.Fatalf("sessions printed store uuid: %q", got)
+	}
+
+	out.Reset()
+	s.Args = []string{"user_cli"}
+	if err := Logout(context.Background(), s, rt); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := login_session.NewStore(authPath, &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if n := len(reloaded.List()); n != 0 {
+		t.Fatalf("logout by public id left %d session(s)", n)
+	}
+}
+
+func TestLogoutEmptyRemovesAll(t *testing.T) {
+	dir := t.TempDir()
+	authPath := filepath.Join(dir, "data.json")
+	store, err := login_session.NewStore(authPath, &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	for i, id := range []string{"a", "b"} {
+		acc := &cursor_account_sdk.Account{
+			ID:      "store-" + id,
+			Subject: "user_" + id,
+			Access:  "tok",
+			Refresh: "ref",
+		}
+		if err := store.Add(acc); err != nil {
+			t.Fatalf("Add %d: %v", i, err)
+		}
+	}
+
+	var out bytes.Buffer
+	rt := &Runtime{Out: &out, Err: &out}
+	if err := Logout(context.Background(), &settings.Settings{AuthPath: authPath}, rt); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := login_session.NewStore(authPath, &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if n := len(reloaded.List()); n != 0 {
+		t.Fatalf("empty logout left %d session(s)", n)
 	}
 }

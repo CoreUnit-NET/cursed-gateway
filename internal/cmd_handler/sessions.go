@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 )
@@ -40,7 +41,7 @@ func Sessions(ctx context.Context, s *settings.Settings, rt *Runtime) error {
 			sub = "-"
 		}
 		fmt.Fprintf(rt.out(), "%s\ttier=%s\tsub=%s\texpires=%d\t%s\n",
-			a.ID, a.Tier, sub, a.ExpiresAt, status)
+			login_session.PublicAccountID(a), a.Tier, sub, a.ExpiresAt, status)
 	}
 	return nil
 }
