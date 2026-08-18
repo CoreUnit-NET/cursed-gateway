@@ -89,6 +89,8 @@ func TestSystemPromptCompatibleTextFallback(t *testing.T) {
 		t.Fatal("expected mismatch on different system text")
 	}
 }
+
+func TestSystemPromptMatches(t *testing.T) {
 	sys := []byte("sys-id")
 	state := &cursorProto.ConversationStateStructure{
 		RootPromptMessagesJson: [][]byte{sys, []byte("user")},
