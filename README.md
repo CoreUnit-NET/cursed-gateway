@@ -18,7 +18,9 @@ _Do you want to use your own account for different personal AI use cases?_
 
 `cursed-gateway` is a Go proxy for setups where several clients need Cursor models through a normal OpenAI-shaped HTTP API.
 
-It handles Cursor OAuth login, keeps access/refresh tokens on disk, refreshes them on a staggered schedule, load-balances across multiple Cursor accounts (preferring Pro), and maps `/v1/chat/completions` (and related OpenAI-like routes) onto Cursor’s internal Connect/gRPC agent protocol.
+It handles Cursor OAuth login, keeps access/refresh tokens on disk, refreshes them on a staggered schedule, load-balances across multiple Cursor accounts (preferring Pro), and maps `/ai/v1/chat/completions` (and related OpenAI-like routes) onto Cursor’s internal Connect/gRPC agent protocol.
+
+The Control API under `/api` exposes the same account store and login attempts as REST resources (accounts, login attempts, service state), separate from the AI surface under `/ai` (example `/ai/v1/models`). `/v1` still works as an alias.
 
 Put it on localhost or a private network next to your agents. Terminate TLS and extra edge auth in front if you need them—this process stays a plain HTTP gateway.
 
@@ -26,7 +28,7 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 
 ### How it works
 
-1. Client calls OpenAI-compatible HTTP (`/v1/models`, `/v1/chat/completions`, stream or non-stream).
+1. Client calls OpenAI-compatible HTTP (`/ai/v1/models`, `/ai/v1/chat/completions`, stream or non-stream; `/v1` still works). A separate Control API under `/api` manages accounts, login attempts, and service state on the same process — it is not on the completion path.
 2. Gateway buffers the request and picks a healthy account from the pool.
 3. Upstream talk goes to Cursor over HTTP/2 Connect (`api2.cursor.sh` by default).
 4. Response headers/status stay held until upstream init succeeds; on early account errors the gateway retries with the next account before committing the client response.
@@ -41,10 +43,12 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 - **OAuth login CLI:** `login` runs a Cursor PKCE login flow and stores tokens locally in the gateway session store.
 - **Cursor auth.json import:** `import` is the only path that reads Cursor-style `auth.json` and merges sessions into the gateway store.
 - **Multi-account store:** Run several Cursor accounts at once under one gateway.
-- **Account management CLI:** `logout`, `sessions`, and `whoami` operate on the session store / config only—no need for a running gateway process.
+- **Account management CLI:** `logout` and `sessions` operate on the session store / config only—no need for a running gateway process.
+- **Control API:** REST under `/api` for accounts, login attempts, and service state — resource/state URLs, not CLI task names. Add accounts with `POST /api/accounts` (test against Cursor, then store) or by finishing a `/api/login` attempt.
+- **HTTP path split:** AI under `/ai` (example `/ai/v1/models`); Control API under `/api`. `/v1` remains as an alias.
 - **Staggered token refresh:** Spreads refresh work across accounts (`lifetime - margin`, oldest refresh first). Boot fast-refresh handles tokens close to expiry first.
 - **OpenAI-compatible API:** Text, chat, and streaming; image/media where Cursor supports it.
-- **Model discovery:** Exposes Cursor models via `/v1/models` and a `models` CLI command.
+- **Model discovery:** Exposes Cursor models via `/ai/v1/models` (`/v1/models` still works) and a `models` CLI command.
 - **Account load balancing:** Rotates healthy accounts, prefers Pro over Free, cools down rate-limited accounts.
 - **Delayed-header fallback:** Buffers the client body and withholds headers until upstream init succeeds; fails over to the next account on pre-stream errors.
 - **Cursor rate-limit awareness:** Treats upstream 429 / equivalent limits as pool cooldown signals.
@@ -68,6 +72,8 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 
 Account and inspect commands read/write `AUTH_PATH` (the gateway session store) and related config. They do **not** talk to a running `serve` process.
 
+When `serve` is running, the [Control API](#control-api) exposes the same store as REST under `/api` (accounts, login attempts, and service state). CLI task names are not HTTP paths. The gateway is a shared account pool and has no mapping from caller to account.
+
 Cursor’s own `auth.json` is **not** used as the live store. Bring those sessions in only with [`import`](#import).
 
 Show help messages:
@@ -84,6 +90,8 @@ Start the Cursor OAuth PKCE flow and write the access/refresh session into the g
 cursed-gateway login
 ```
 
+HTTP: `POST /api/login` creates a PKCE attempt and returns `id` plus `url`. Completing that attempt in the browser adds the account. See [Control API](#control-api).
+
 ### import
 
 Import a Cursor-style `auth.json` into the gateway session store (`AUTH_PATH`). This is the only supported way to consume Cursor `auth.json`:
@@ -95,14 +103,18 @@ cursed-gateway import ./path/to/auth.json
 
 Default import source is `./data/auth.json` when no path is given. Existing sessions in the gateway store are merged, not replaced wholesale.
 
+HTTP: `POST /api/accounts` with Cursor token JSON (`refreshToken` or `refresh`) tests against Cursor, then stores. `import` stays the CLI path for an `auth.json` file. See [Control API](#control-api).
+
 ### logout
 
 Remove one or more sessions from the gateway session store (file/config only):
 
 ```sh
 cursed-gateway logout
-cursed-gateway logout <session-id>
+cursed-gateway logout <id>
 ```
+
+`<id>` is the same public account id as `GET /api/accounts` (JWT subject, or store UUID if subject is empty). HTTP: `DELETE /api/accounts/<id>` deletes the local session. See [Control API](#control-api).
 
 ### sessions
 
@@ -120,13 +132,7 @@ cursed-gateway sessions --check
 
 Each checked session prints a status such as `valid`, `invalid`, or `error: <message>`.
 
-### whoami
-
-Show which sessions/accounts are in the store and basic identity metadata from local state:
-
-```sh
-cursed-gateway whoami
-```
+HTTP: `GET /api/accounts` lists pool accounts (`id`, `subject`, `tier`, `expires`), never access/refresh tokens. That is store metadata, not who owns the account. `--check` stays a one-shot CLI action. See [Control API](#control-api).
 
 ### models
 
@@ -135,6 +141,8 @@ Fetch and print models available to the configured Cursor account(s):
 ```sh
 cursed-gateway models
 ```
+
+HTTP: `/ai/v1/models` (`/v1/models` still works).
 
 ### version
 
@@ -154,7 +162,103 @@ Start the OpenAI-compatible proxy:
 cursed-gateway serve
 ```
 
-Point clients at `http://<host>:<port>/v1` (default `http://0.0.0.0:8080/v1`).
+Point clients at `http://<host>:<port>/ai/v1` (default `http://0.0.0.0:8080/ai/v1`). `/v1` still works as an alias. Control API on the same listener: `GET /api`.
+
+### Control API
+
+HTTP is split by resource, not by CLI task names (`sessions`, `login`):
+
+- `/ai/*` — OpenAI-like AI. Example: `/ai/v1/models`. `/v1` remains as an alias.
+- `/api/*` — Control API: accounts, login attempts, and service state.
+
+The process is a shared account pool: callers add accounts and use `/ai`. There is no mapping from caller to account.
+
+Account `id` is the JWT subject from Cursor login data (fallback: store UUID). Login-attempt `id` is Cursor’s PKCE uuid and is never reused as the account `id`. Account payloads are local store fields (`id`, `subject`, `tier`, `expires`); they never include access/refresh tokens.
+
+Errors on most routes are `{"error":"<message>"}`. `POST /api/accounts` uses `{ok, id}` / `{ok:false, error}` instead.
+
+**Service**
+
+`GET /api` — account count, login-attempt count, and the login-attempt limits:
+
+```json
+{
+  "accounts": 0,
+  "login_attempts": 0,
+  "max_login_attempts": 3,
+  "login_attempt_mins": 3,
+  "login_keep_mins": 5
+}
+```
+
+**Accounts**
+
+- `GET /api/accounts` — list all accounts.
+- `GET /api/accounts/<id>` — one account.
+- `DELETE /api/accounts/<id>` — delete the local session (`204` empty body).
+- `POST /api/accounts` — test the request payload against Cursor, then store. `201` for a new account, `200` if an existing subject was merged.
+
+List:
+
+```json
+{
+  "accounts": [
+    {
+      "id": "user_abc",
+      "subject": "user_abc",
+      "tier": "pro",
+      "expires": 1735689600000
+    }
+  ]
+}
+```
+
+One account is that object without the wrapper. `expires` is Unix milliseconds.
+
+`POST /api/accounts` body is Cursor token JSON. `refreshToken` or `refresh` is required; `accessToken` / `access` is optional. Nested `{"cursor": { ... }}` is accepted:
+
+```json
+{ "refreshToken": "<token>" }
+```
+
+Success / failure:
+
+```json
+{ "ok": true, "id": "user_abc" }
+```
+
+```json
+{ "ok": false, "error": "missing refresh token" }
+```
+
+**Login attempts**
+
+- `POST /api/login` — create a PKCE attempt (not an account). `201` with `id`, `url`, and `state`. `409` when open attempts are at the cap.
+- `GET /api/login` — list open attempts (and recently resolved ones still in the keep window).
+- `GET /api/login/<id>` — one attempt: URL, login state, and `account_id` after success.
+- `DELETE /api/login/<id>` — close that attempt (`204`).
+
+`POST /api/login` needs no body:
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "url": "https://cursor.com/loginDeepControl?challenge=...&uuid=...&mode=login",
+  "state": "pending"
+}
+```
+
+List:
+
+```json
+{ "login": [ { "id": "...", "url": "...", "state": "pending" } ] }
+```
+
+`state` is `pending`, `succeeded`, `failed`, or `expired`. After success the attempt also has `account_id` (the new account `id`, not the attempt `id`). Failed attempts may include `error`.
+
+Two ways to add an account: `POST /api/accounts` (above), or complete a login attempt. Success creates the account; the attempt stays listed for `LOGIN_KEEP_MINS` (default 5 minutes), then is removed.
+
+Open attempts are capped by `MAX_LOGIN_ATTEMPTS` (default 3) and closed after `LOGIN_ATTEMPT_MINS` (default 3 minutes) if unanswered. Those limits are environment variables only.
 
 </details>
 
@@ -175,7 +279,12 @@ A `.env` file in the working directory is loaded at startup when present (missin
 - `COOLDOWN_MINS` or `-c` / `--cooldown`: cooldown minutes for rate-limited accounts, defaults to `15`
 - `PREFER_PRO` or `--prefer-pro`: prefer Pro accounts over Free, defaults to `true`
 - `VERBOSE` or `-b` / `--verbose`: enable debug and trace logs, defaults to `false`
-- `ENABLE_LOGIN` or `--enable-login`: expose `GET /login` as a 307 redirect to Cursor OAuth, defaults to `false`
+
+Login-attempt limits are environment variables only (no flags):
+
+- `MAX_LOGIN_ATTEMPTS`: max open Control API login attempts, defaults to `3`
+- `LOGIN_ATTEMPT_MINS`: close unanswered login attempts after this many minutes, defaults to `3`
+- `LOGIN_KEEP_MINS`: keep a resolved login attempt after the account is created, defaults to `5`
 
 Logging always uses `log/slog` text on stderr. There is no `LOG_FORMAT` switch.
 
