@@ -3,9 +3,10 @@ package service
 /*
 Package service is the app glue layer started from main.
 
-It wires settings, login_session refresh loops, and completion_api for
-long-lived serve, and can coordinate one-shot flows that need shared
-init. cmd_handler calls into this package; it does not parse CLI flags.
+It wires settings, login_session refresh loops, completion_api, and
+control_api for long-lived serve, and can coordinate one-shot flows that
+need shared init. cmd_handler calls into this package; it does not parse
+CLI flags.
 */
 
 import (
@@ -21,6 +22,7 @@ import (
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/account_pool"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/completion_api"
+	"github.com/CoreUnit-NET/cursed-gateway/internal/control_api"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/login_session"
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
@@ -77,17 +79,24 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 	mux := http.NewServeMux()
 	handler.Mount(mux)
 
-	var pendingLogin *login_session.PendingLogin
-	if s.EnableLogin {
-		pendingLogin = &login_session.PendingLogin{
-			Store:  store,
-			Client: client,
-			Log:    log,
-			Parent: ctx,
-		}
-		mux.Handle("GET /login", pendingLogin)
-		log.Info("http login endpoint enabled", "path", "/login")
+	attempts := &login_session.LoginAttempts{
+		Store:          store,
+		Client:         client,
+		Log:            log,
+		Parent:         ctx,
+		MaxOpen:        s.MaxLoginAttempts,
+		AttemptTimeout: s.LoginAttemptTimeout(),
+		Keep:           s.LoginKeepDuration(),
 	}
+	control := &control_api.Handler{
+		Store:            store,
+		Attempts:         attempts,
+		Log:              log,
+		MaxLoginAttempts: s.MaxLoginAttempts,
+		LoginAttemptMins: s.LoginAttemptMins,
+		LoginKeepMins:    s.LoginKeepMins,
+	}
+	control.Mount(mux)
 
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	httpSrv := &http.Server{
@@ -98,7 +107,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", addr, "auth", store.Path(), "enable_login", s.EnableLogin)
+		log.Info("listening", "addr", addr, "auth", store.Path())
 		err := httpSrv.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
@@ -110,18 +119,14 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 	select {
 	case <-ctx.Done():
 		log.Info("shutting down", "addr", addr)
-		if pendingLogin != nil {
-			pendingLogin.Stop()
-		}
+		attempts.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)
 		refreshCancel()
 		return <-errCh
 	case err := <-errCh:
-		if pendingLogin != nil {
-			pendingLogin.Stop()
-		}
+		attempts.Stop()
 		refreshCancel()
 		if err != nil {
 			log.Error("http server failed", "addr", addr, "err", err)

@@ -8,15 +8,18 @@ import (
 
 func TestFromAppConfigOK(t *testing.T) {
 	cfg := &config.AppConfig{
-		Command:      config.CommandServe,
-		Host:         "127.0.0.1",
-		Port:         8080,
-		AuthPath:     "./data/data.json",
-		MaxRetries:   5,
-		CooldownMins: 15,
-		PreferPro:    true,
-		Verbose:      true,
-		ImportPath:   "./data/auth.json",
+		Command:          config.CommandServe,
+		Host:             "127.0.0.1",
+		Port:             8080,
+		AuthPath:         "./data/data.json",
+		MaxRetries:       5,
+		CooldownMins:     15,
+		PreferPro:        true,
+		Verbose:          true,
+		ImportPath:       "./data/auth.json",
+		MaxLoginAttempts: 3,
+		LoginAttemptMins: 3,
+		LoginKeepMins:    5,
 	}
 	s, err := FromAppConfig(cfg)
 	if err != nil {

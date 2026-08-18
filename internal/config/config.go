@@ -42,8 +42,12 @@ type AppConfig struct {
 	MaxRetries   int
 	CooldownMins int
 	PreferPro    bool
-	// EnableLogin registers GET /login (307 to Cursor Deep Control) on serve.
-	EnableLogin bool
+	// MaxLoginAttempts caps concurrent open Control API login attempts.
+	MaxLoginAttempts int
+	// LoginAttemptMins closes unanswered login attempts after this many minutes.
+	LoginAttemptMins int
+	// LoginKeepMins keeps a resolved login attempt listed after success/fail.
+	LoginKeepMins int
 
 	// SessionsCheck is set by `sessions --check`.
 	SessionsCheck bool
@@ -56,13 +60,15 @@ func defaultAppConfig() *AppConfig {
 		Verbose:     false,
 		ShowVersion: false,
 
-		Host:         "0.0.0.0",
-		Port:         8080,
-		AuthPath:     "./data/data.json",
-		MaxRetries:   5,
-		CooldownMins: 15,
-		PreferPro:    true,
-		EnableLogin:  false,
+		Host:             "0.0.0.0",
+		Port:             8080,
+		AuthPath:         "./data/data.json",
+		MaxRetries:       5,
+		CooldownMins:     15,
+		PreferPro:        true,
+		MaxLoginAttempts: 3,
+		LoginAttemptMins: 3,
+		LoginKeepMins:    5,
 
 		ImportPath: "./data/auth.json",
 	}
@@ -93,7 +99,7 @@ func loginCommand(appConfig *AppConfig) *cobra.Command {
 
 func logoutCommand(appConfig *AppConfig) *cobra.Command {
 	return &cobra.Command{
-		Use:   "logout [session-id]",
+		Use:   "logout [id]",
 		Short: "Remove one or more sessions from the auth store",
 		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -200,8 +206,18 @@ func loadEnvVars(appConfig *AppConfig) error {
 	}); err != nil {
 		return err
 	}
-	if err := envIsBool("ENABLE_LOGIN", func(value bool) {
-		appConfig.EnableLogin = value
+	if err := envIsInt("MAX_LOGIN_ATTEMPTS", func(value int) {
+		appConfig.MaxLoginAttempts = value
+	}); err != nil {
+		return err
+	}
+	if err := envIsInt("LOGIN_ATTEMPT_MINS", func(value int) {
+		appConfig.LoginAttemptMins = value
+	}); err != nil {
+		return err
+	}
+	if err := envIsInt("LOGIN_KEEP_MINS", func(value int) {
+		appConfig.LoginKeepMins = value
 	}); err != nil {
 		return err
 	}
@@ -217,7 +233,6 @@ func applyServeFlags(appConfig *AppConfig, cmd *cobra.Command) {
 	cmd.PersistentFlags().IntVarP(&appConfig.MaxRetries, "retries", "r", appConfig.MaxRetries, "max account fallback attempts per request (MAX_RETRIES)")
 	cmd.PersistentFlags().IntVarP(&appConfig.CooldownMins, "cooldown", "c", appConfig.CooldownMins, "cooldown minutes for rate-limited accounts (COOLDOWN_MINS)")
 	cmd.PersistentFlags().BoolVar(&appConfig.PreferPro, "prefer-pro", appConfig.PreferPro, "prefer Pro accounts over Free (PREFER_PRO)")
-	cmd.PersistentFlags().BoolVar(&appConfig.EnableLogin, "enable-login", appConfig.EnableLogin, "opt-in: expose GET /login as 307 redirect to Cursor OAuth (ENABLE_LOGIN)")
 }
 
 // ParseConfig loads env defaults, parses CLI flags/subcommands, and returns the app config.

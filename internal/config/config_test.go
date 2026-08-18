@@ -11,7 +11,8 @@ func clearConfigEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"HOST", "PORT", "AUTH_PATH", "MAX_RETRIES", "COOLDOWN_MINS",
-		"PREFER_PRO", "VERBOSE", "ENABLE_LOGIN",
+		"PREFER_PRO", "VERBOSE", "MAX_LOGIN_ATTEMPTS",
+		"LOGIN_ATTEMPT_MINS", "LOGIN_KEEP_MINS",
 	} {
 		t.Setenv(key, "")
 	}
@@ -49,8 +50,14 @@ func TestParseConfigDefaults(t *testing.T) {
 	if cfg.Verbose {
 		t.Fatal("expected Verbose false by default")
 	}
-	if cfg.EnableLogin {
-		t.Fatal("expected EnableLogin false by default")
+	if cfg.MaxLoginAttempts != 3 {
+		t.Fatalf("MaxLoginAttempts = %d, want 3", cfg.MaxLoginAttempts)
+	}
+	if cfg.LoginAttemptMins != 3 {
+		t.Fatalf("LoginAttemptMins = %d, want 3", cfg.LoginAttemptMins)
+	}
+	if cfg.LoginKeepMins != 5 {
+		t.Fatalf("LoginKeepMins = %d, want 5", cfg.LoginKeepMins)
 	}
 }
 
@@ -66,7 +73,9 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	t.Setenv("COOLDOWN_MINS", "30")
 	t.Setenv("PREFER_PRO", "false")
 	t.Setenv("VERBOSE", "false")
-	t.Setenv("ENABLE_LOGIN", "false")
+	t.Setenv("MAX_LOGIN_ATTEMPTS", "9")
+	t.Setenv("LOGIN_ATTEMPT_MINS", "1")
+	t.Setenv("LOGIN_KEEP_MINS", "2")
 
 	os.Args = []string{
 		"cursed-gateway", "serve",
@@ -77,7 +86,6 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 		"-c", "20",
 		"--prefer-pro=true",
 		"-b",
-		"--enable-login=true",
 	}
 	cfg, err := ParseConfig("Demo", "demo")
 	if err != nil {
@@ -105,8 +113,14 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	if !cfg.Verbose {
 		t.Fatal("expected Verbose true from flag")
 	}
-	if !cfg.EnableLogin {
-		t.Fatal("expected EnableLogin true from flag")
+	if cfg.MaxLoginAttempts != 9 {
+		t.Fatalf("MaxLoginAttempts = %d, want env 9", cfg.MaxLoginAttempts)
+	}
+	if cfg.LoginAttemptMins != 1 {
+		t.Fatalf("LoginAttemptMins = %d, want env 1", cfg.LoginAttemptMins)
+	}
+	if cfg.LoginKeepMins != 2 {
+		t.Fatalf("LoginKeepMins = %d, want env 2", cfg.LoginKeepMins)
 	}
 }
 
@@ -120,7 +134,9 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	t.Setenv("AUTH_PATH", "./data/auth.json")
 	t.Setenv("PREFER_PRO", "false")
 	t.Setenv("VERBOSE", "true")
-	t.Setenv("ENABLE_LOGIN", "true")
+	t.Setenv("MAX_LOGIN_ATTEMPTS", "1")
+	t.Setenv("LOGIN_ATTEMPT_MINS", "4")
+	t.Setenv("LOGIN_KEEP_MINS", "6")
 
 	os.Args = []string{"cursed-gateway", "serve"}
 	cfg, err := ParseConfig("Demo", "demo")
@@ -143,8 +159,14 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	if !cfg.Verbose {
 		t.Fatal("expected Verbose true from env")
 	}
-	if !cfg.EnableLogin {
-		t.Fatal("expected EnableLogin true from env")
+	if cfg.MaxLoginAttempts != 1 {
+		t.Fatalf("MaxLoginAttempts = %d, want env 1", cfg.MaxLoginAttempts)
+	}
+	if cfg.LoginAttemptMins != 4 {
+		t.Fatalf("LoginAttemptMins = %d, want env 4", cfg.LoginAttemptMins)
+	}
+	if cfg.LoginKeepMins != 6 {
+		t.Fatalf("LoginKeepMins = %d, want env 6", cfg.LoginKeepMins)
 	}
 }
 

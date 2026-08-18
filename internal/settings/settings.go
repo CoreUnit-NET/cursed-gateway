@@ -16,6 +16,7 @@ only in cmd/proto — not here.
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/CoreUnit-NET/cursed-gateway/internal/config"
 )
@@ -27,14 +28,16 @@ type Settings struct {
 	SessionsCheck bool
 	ImportPath    string
 
-	Host         string
-	Port         int
-	AuthPath     string
-	MaxRetries   int
-	CooldownMins int
-	PreferPro    bool
-	Verbose      bool
-	EnableLogin  bool
+	Host             string
+	Port             int
+	AuthPath         string
+	MaxRetries       int
+	CooldownMins     int
+	PreferPro        bool
+	Verbose          bool
+	MaxLoginAttempts int
+	LoginAttemptMins int
+	LoginKeepMins    int
 }
 
 // FromAppConfig validates cfg and returns Settings.
@@ -43,19 +46,21 @@ func FromAppConfig(cfg *config.AppConfig) (*Settings, error) {
 		return nil, fmt.Errorf("config is nil")
 	}
 	s := &Settings{
-		Command:       cfg.Command,
-		Args:          append([]string(nil), cfg.Args...),
-		ShowVersion:   cfg.ShowVersion,
-		SessionsCheck: cfg.SessionsCheck,
-		ImportPath:    strings.TrimSpace(cfg.ImportPath),
-		Host:          strings.TrimSpace(cfg.Host),
-		Port:          cfg.Port,
-		AuthPath:      strings.TrimSpace(cfg.AuthPath),
-		MaxRetries:    cfg.MaxRetries,
-		CooldownMins:  cfg.CooldownMins,
-		PreferPro:     cfg.PreferPro,
-		Verbose:       cfg.Verbose,
-		EnableLogin:   cfg.EnableLogin,
+		Command:          cfg.Command,
+		Args:             append([]string(nil), cfg.Args...),
+		ShowVersion:      cfg.ShowVersion,
+		SessionsCheck:    cfg.SessionsCheck,
+		ImportPath:       strings.TrimSpace(cfg.ImportPath),
+		Host:             strings.TrimSpace(cfg.Host),
+		Port:             cfg.Port,
+		AuthPath:         strings.TrimSpace(cfg.AuthPath),
+		MaxRetries:       cfg.MaxRetries,
+		CooldownMins:     cfg.CooldownMins,
+		PreferPro:        cfg.PreferPro,
+		Verbose:          cfg.Verbose,
+		MaxLoginAttempts: cfg.MaxLoginAttempts,
+		LoginAttemptMins: cfg.LoginAttemptMins,
+		LoginKeepMins:    cfg.LoginKeepMins,
 	}
 	if err := s.validate(); err != nil {
 		return nil, err
@@ -79,8 +84,35 @@ func (s *Settings) validate() error {
 	if s.CooldownMins < 0 {
 		return fmt.Errorf("cooldown minutes must be >= 0")
 	}
+	if s.MaxLoginAttempts < 1 {
+		return fmt.Errorf("max login attempts must be >= 1")
+	}
+	if s.LoginAttemptMins < 1 {
+		return fmt.Errorf("login attempt minutes must be >= 1")
+	}
+	if s.LoginKeepMins < 1 {
+		return fmt.Errorf("login keep minutes must be >= 1")
+	}
 	if s.Command == config.CommandImport && s.ImportPath == "" {
 		return fmt.Errorf("import path must not be empty")
 	}
 	return nil
+}
+
+// LoginAttemptTimeout is how long an unanswered Control API login attempt stays open.
+func (s *Settings) LoginAttemptTimeout() time.Duration {
+	mins := 3
+	if s != nil && s.LoginAttemptMins > 0 {
+		mins = s.LoginAttemptMins
+	}
+	return time.Duration(mins) * time.Minute
+}
+
+// LoginKeepDuration is how long a resolved login attempt stays listed.
+func (s *Settings) LoginKeepDuration() time.Duration {
+	mins := 5
+	if s != nil && s.LoginKeepMins > 0 {
+		mins = s.LoginKeepMins
+	}
+	return time.Duration(mins) * time.Minute
 }
