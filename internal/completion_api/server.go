@@ -42,8 +42,10 @@ type Server struct {
 	Log     *slog.Logger
 	MaxBody int64
 
-	bridgeOnce    sync.Once
-	activeBridges *bridgeRegistry
+	bridgeOnce     sync.Once
+	activeBridges  *bridgeRegistry
+	checkpointOnce sync.Once
+	checkpoints    *cursor_api_sdk.CheckpointStore
 }
 
 // NewServer wires a concrete pool and API client for handlers / CLI reuse.

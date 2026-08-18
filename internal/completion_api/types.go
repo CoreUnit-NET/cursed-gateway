@@ -8,6 +8,22 @@ type ChatCompletionRequest struct {
 	Messages []cursor_api_sdk.ChatMessage   `json:"messages"`
 	Stream   bool                           `json:"stream"`
 	Tools    []cursor_api_sdk.OpenAIToolDef `json:"tools,omitempty"`
+	// Sticky identity fields (otto conversation/identity.ts) — first non-empty wins.
+	ConversationID string         `json:"conversation_id,omitempty"`
+	ThreadID       string         `json:"thread_id,omitempty"`
+	SessionID      string         `json:"session_id,omitempty"`
+	User           string         `json:"user,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+}
+
+func (r ChatCompletionRequest) conversationIdentity() cursor_api_sdk.ConversationIdentity {
+	return cursor_api_sdk.ConversationIdentity{
+		ConversationID: r.ConversationID,
+		ThreadID:       r.ThreadID,
+		SessionID:      r.SessionID,
+		User:           r.User,
+		Metadata:       r.Metadata,
+	}
 }
 
 type modelListResponse struct {

@@ -30,14 +30,15 @@ type StreamEvent struct {
 type RunControl struct {
 	Events <-chan StreamEvent
 
-	writeMu    sync.Mutex
-	writeFrame func(*cursorProto.AgentClientMessage) error
-	cancel     context.CancelFunc
-	pw         *io.PipeWriter
-	pending    []PendingExec
-	preface    []StreamEvent // events pushed back by tool-call drains
-	usage      usageAcc
-	mu         sync.Mutex
+	writeMu      sync.Mutex
+	writeFrame   func(*cursorProto.AgentClientMessage) error
+	cancel       context.CancelFunc
+	pw           *io.PipeWriter
+	pending      []PendingExec
+	preface      []StreamEvent // events pushed back by tool-call drains
+	usage        usageAcc
+	mu           sync.Mutex
+	onCheckpoint func(state *cursorProto.ConversationStateStructure)
 }
 
 // Usage returns the Path A token meter accumulated on this run so far.
@@ -292,6 +293,13 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 		cancel: cancel,
 		pw:     pw,
 	}
+	if payload.OnCheckpoint != nil {
+		blobs := payload.BlobStore
+		cb := payload.OnCheckpoint
+		rc.onCheckpoint = func(state *cursorProto.ConversationStateStructure) {
+			cb(state, blobs)
+		}
+	}
 	rc.writeFrame = func(msg *cursorProto.AgentClientMessage) error {
 		b, err := proto.Marshal(msg)
 		if err != nil {
@@ -425,6 +433,9 @@ func (c *Client) StartRun(ctx context.Context, accessToken string, payload *RunP
 				if state := m.ConversationCheckpointUpdate; state != nil {
 					if td := state.GetTokenDetails(); td != nil {
 						rc.notePromptTokens(int(td.GetUsedTokens()))
+					}
+					if rc.onCheckpoint != nil {
+						rc.onCheckpoint(state)
 					}
 				}
 			case *cursorProto.AgentServerMessage_InteractionUpdate:

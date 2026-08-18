@@ -36,8 +36,10 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
+	ident := req.conversationIdentity()
+	parsed.StickyConversationID = cursor_api_sdk.StickyConversationID(ident)
 
-	bridgeKey := cursor_api_sdk.DeriveBridgeKey(req.Model, req.Messages)
+	bridgeKey := cursor_api_sdk.DeriveBridgeKeyWithIdentity(req.Model, req.Messages, ident)
 	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 	created := time.Now().Unix()
 	dw := newDelayedWriter(w)
@@ -108,6 +110,8 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	var modelID string
 	var resolvedSel cursor_api_sdk.ModelSelection
 	var runUsage cursor_api_sdk.Usage
+	var cursorConvID string
+	var checkpointMode string
 	err = h.Server.withAccess(ctx, func(access string) error {
 		sel, err := h.Server.API.ResolveModelSelection(ctx, access, req.Model)
 		if err != nil {
@@ -117,12 +121,20 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		if sel.SupportsAgent != nil && !*sel.SupportsAgent {
 			h.Server.log().Warn("catalog marks model as non-agent", "model", sel.PublicID, "wire_model_id", sel.WireModelID)
 		}
-		payload, err := cursor_api_sdk.BuildRunPayloadSelection(sel, parsed)
+		convKey := cursor_api_sdk.DeriveConversationKey(cursor_api_sdk.BuildConversationIdentity(ident))
+		var prior *cursor_api_sdk.StoredCheckpoint
+		if convKey != "" {
+			prior = h.Server.checkpointStore().Get(convKey)
+		}
+		payload, err := cursor_api_sdk.BuildRunPayloadWithCheckpoint(sel, parsed, prior)
 		if err != nil {
 			return err
 		}
 		payload.Tools = mcpTools
+		h.Server.attachCheckpointCapture(payload, ident)
 		modelID = payload.ModelID
+		cursorConvID = payload.Conversation
+		checkpointMode = payload.CheckpointMode
 		resolvedSel = sel
 		rc, err := h.Server.API.StartRun(ctx, access, payload, bridgeTools)
 		if err != nil {
@@ -159,6 +171,8 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 			"stream", false,
 			"finish", "tool_calls",
 			"tool_calls", len(calls),
+			"cursor_conversation_id", cursorConvID,
+			"checkpoint", checkpointMode,
 			"prompt_tokens", runUsage.PromptTokens,
 			"completion_tokens", runUsage.CompletionTokens,
 		)
@@ -170,6 +184,8 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		"stream", false,
 		"finish", "stop",
 		"chars", len(text),
+		"cursor_conversation_id", cursorConvID,
+		"checkpoint", checkpointMode,
 		"prompt_tokens", runUsage.PromptTokens,
 		"completion_tokens", runUsage.CompletionTokens,
 	)
@@ -182,8 +198,10 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
+	ident := req.conversationIdentity()
+	parsed.StickyConversationID = cursor_api_sdk.StickyConversationID(ident)
 
-	bridgeKey := cursor_api_sdk.DeriveBridgeKey(req.Model, req.Messages)
+	bridgeKey := cursor_api_sdk.DeriveBridgeKeyWithIdentity(req.Model, req.Messages, ident)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		h.Server.writeAPIError(w, r, http.StatusInternalServerError, "streaming unsupported")
@@ -225,7 +243,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 			_ = dw.Commit()
 			return
 		}
-		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h); err != nil && !committed {
+		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h, "", ""); err != nil && !committed {
 			br.RC.Close()
 			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
 			_ = dw.Commit()
@@ -250,17 +268,23 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		if sel.SupportsAgent != nil && !*sel.SupportsAgent {
 			h.Server.log().Warn("catalog marks model as non-agent", "model", sel.PublicID, "wire_model_id", sel.WireModelID)
 		}
-		payload, err := cursor_api_sdk.BuildRunPayloadSelection(sel, parsed)
+		convKey := cursor_api_sdk.DeriveConversationKey(cursor_api_sdk.BuildConversationIdentity(ident))
+		var prior *cursor_api_sdk.StoredCheckpoint
+		if convKey != "" {
+			prior = h.Server.checkpointStore().Get(convKey)
+		}
+		payload, err := cursor_api_sdk.BuildRunPayloadWithCheckpoint(sel, parsed, prior)
 		if err != nil {
 			return err
 		}
 		payload.Tools = mcpTools
+		h.Server.attachCheckpointCapture(payload, ident)
 		setCursorModelHeaders(dw.Header(), sel)
 		rc, err := h.Server.API.StartRun(ctx, access, payload, bridgeTools)
 		if err != nil {
 			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
-		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h); err != nil {
+		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h, payload.Conversation, payload.CheckpointMode); err != nil {
 			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
 		return nil
@@ -282,6 +306,8 @@ func streamFromRun(
 	bridgeKey string,
 	rc *cursor_api_sdk.RunControl,
 	h *Handler,
+	cursorConvID string,
+	checkpointMode string,
 ) error {
 	toolIndex := 0
 	parked := false
@@ -331,6 +357,8 @@ func streamFromRun(
 				"stream", true,
 				"finish", "tool_calls",
 				"tool_calls", len(calls),
+				"cursor_conversation_id", cursorConvID,
+				"checkpoint", checkpointMode,
 				"prompt_tokens", u.PromptTokens,
 				"completion_tokens", u.CompletionTokens,
 			)
@@ -353,6 +381,8 @@ func streamFromRun(
 				"model", model,
 				"stream", true,
 				"finish", "stop",
+				"cursor_conversation_id", cursorConvID,
+				"checkpoint", checkpointMode,
 				"prompt_tokens", u.PromptTokens,
 				"completion_tokens", u.CompletionTokens,
 			)

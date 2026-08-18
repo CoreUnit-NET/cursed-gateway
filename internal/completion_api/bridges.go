@@ -6,6 +6,7 @@ import (
 	"time"
 
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
+	cursorProto "github.com/CoreUnit-NET/cursed-gateway/lib/cursorProto"
 )
 
 const bridgeTTL = 10 * time.Minute
@@ -45,6 +46,35 @@ func (s *Server) bridges() *bridgeRegistry {
 		s.activeBridges = newBridgeRegistry(s.log())
 	})
 	return s.activeBridges
+}
+
+func (s *Server) checkpointStore() *cursor_api_sdk.CheckpointStore {
+	if s == nil {
+		return cursor_api_sdk.NewCheckpointStore(0)
+	}
+	s.checkpointOnce.Do(func() {
+		s.checkpoints = cursor_api_sdk.NewCheckpointStore(bridgeTTL)
+	})
+	return s.checkpoints
+}
+
+// attachCheckpointCapture wires sticky identity capture onto a run payload.
+// Empty identity skips capture (support.md §4.9 — no first-user sticky store).
+func (s *Server) attachCheckpointCapture(payload *cursor_api_sdk.RunPayload, ident cursor_api_sdk.ConversationIdentity) {
+	if s == nil || payload == nil {
+		return
+	}
+	key := cursor_api_sdk.DeriveConversationKey(cursor_api_sdk.BuildConversationIdentity(ident))
+	if key == "" {
+		return
+	}
+	payload.CheckpointKey = key
+	store := s.checkpointStore()
+	log := s.log()
+	payload.OnCheckpoint = func(state *cursorProto.ConversationStateStructure, blobs map[string][]byte) {
+		store.Put(key, state, blobs)
+		log.Info("checkpoint captured", "key", key, "blobs", len(blobs))
+	}
 }
 
 func (r *bridgeRegistry) park(key string, rc *cursor_api_sdk.RunControl, modelID string) {

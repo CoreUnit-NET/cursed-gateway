@@ -113,6 +113,9 @@ type ParsedChat struct {
 	// UserImages are action-turn attachments only (history stays text-only).
 	UserImages  []Image
 	ToolResults []ToolResultInfo
+	// StickyConversationID, when set, is used as AgentRunRequest.conversation_id
+	// instead of a random UUID (P2.1 identity keying).
+	StickyConversationID string
 }
 
 // ParseChatMessages splits OpenAI messages into system / history / current user / tool results.
@@ -187,11 +190,34 @@ type RunPayload struct {
 	ModelID      string
 	// Tools is echoed into exec request_context replies (may be empty).
 	Tools []*cursorProto.McpToolDefinition
+	// CheckpointMode is miss|hit|rebuild for sticky P2.2 logging.
+	CheckpointMode string
+	// CheckpointKey, when set, captures conversation_checkpoint_update into the store.
+	CheckpointKey string
+	// OnCheckpoint is invoked on each ConversationCheckpointUpdate (may be nil).
+	OnCheckpoint func(state *cursorProto.ConversationStateStructure, blobs map[string][]byte)
 }
 
 // BuildRunPayload builds an AgentClientMessage run_request (blob system prompt strategy).
 func BuildRunPayload(modelID string, parsed ParsedChat) (*RunPayload, error) {
 	return BuildRunPayloadSelection(LiteralModelSelection(modelID), parsed)
+}
+
+// BuildRunPayloadWithCheckpoint builds a run request, optionally merging a prior sticky checkpoint.
+func BuildRunPayloadWithCheckpoint(sel ModelSelection, parsed ParsedChat, prior *StoredCheckpoint) (*RunPayload, error) {
+	return buildRunPayloadSelection(sel, parsed, prior)
+}
+
+// rootRoleMessage / rootTextPart encode rootPromptMessagesJson like oauth
+// (JSON.stringify insertion order), not Go map key sort.
+type rootRoleMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
+type rootTextPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 // storeBlob content-addresses raw bytes: 32-byte sha256 id on the wire,
@@ -219,6 +245,10 @@ func storeJSONBlob(store map[string][]byte, v any) ([]byte, error) {
 // Every ConversationState Structure `bytes` field is a 32-byte sha256 blob id;
 // raw bytes live only in RunPayload.BlobStore (served by handleKV getBlob).
 func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayload, error) {
+	return buildRunPayloadSelection(sel, parsed, nil)
+}
+
+func buildRunPayloadSelection(sel ModelSelection, parsed ParsedChat, prior *StoredCheckpoint) (*RunPayload, error) {
 	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 {
 		return nil, fmt.Errorf("chat request missing user message")
 	}
@@ -233,34 +263,33 @@ func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayloa
 	}
 
 	blobStore := map[string][]byte{}
+	mode := CheckpointMiss
+	if prior != nil && prior.State != nil {
+		SeedBlobStore(blobStore, prior.Blobs)
+	}
 
 	// Cursor builds the model prompt from rootPromptMessagesJson, not turns[] alone.
+	// JSON field order must match oauth/JS (role before content; type before text)
+	// so content-addressed blob IDs stay compatible with server-echoed checkpoints.
 	root := make([][]byte, 0, 1+2*len(parsed.Turns))
-	sysID, err := storeJSONBlob(blobStore, map[string]any{
-		"role":    "system",
-		"content": parsed.SystemPrompt,
-	})
+	sysID, err := storeJSONBlob(blobStore, rootRoleMessage{Role: "system", Content: parsed.SystemPrompt})
 	if err != nil {
 		return nil, err
 	}
 	root = append(root, sysID)
 	for _, turn := range parsed.Turns {
-		userRootID, err := storeJSONBlob(blobStore, map[string]any{
-			"role": "user",
-			"content": []any{
-				map[string]string{"type": "text", "text": turn.UserText},
-			},
+		userRootID, err := storeJSONBlob(blobStore, rootRoleMessage{
+			Role:    "user",
+			Content: []rootTextPart{{Type: "text", Text: turn.UserText}},
 		})
 		if err != nil {
 			return nil, err
 		}
 		root = append(root, userRootID)
 		if turn.AssistantText != "" {
-			asstRootID, err := storeJSONBlob(blobStore, map[string]any{
-				"role": "assistant",
-				"content": []any{
-					map[string]string{"type": "text", "text": turn.AssistantText},
-				},
+			asstRootID, err := storeJSONBlob(blobStore, rootRoleMessage{
+				Role:    "assistant",
+				Content: []rootTextPart{{Type: "text", Text: turn.AssistantText}},
 			})
 			if err != nil {
 				return nil, err
@@ -308,20 +337,33 @@ func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayloa
 		turnIDs = append(turnIDs, storeBlob(blobStore, turnBytes))
 	}
 
-	convID := newUUID()
-	state := &cursorProto.ConversationStateStructure{
-		RootPromptMessagesJson: root,
-		Turns:                  turnIDs,
-		Todos:                  nil,
-		PendingToolCalls:       nil,
-		PreviousWorkspaceUris:  nil,
-		FileStates:             map[string][]byte{},
-		FileStatesV2:           map[string]*cursorProto.FileStateStructure{},
-		SummaryArchives:        nil,
-		TurnTimings:            nil,
-		SubagentStates:         map[string]*cursorProto.SubagentPersistedState{},
-		SelfSummaryCount:       0,
-		ReadPaths:              nil,
+	convID := strings.TrimSpace(parsed.StickyConversationID)
+	if convID == "" {
+		convID = newUUID()
+	}
+
+	var state *cursorProto.ConversationStateStructure
+	if prior != nil && prior.State != nil && SystemPromptCompatible(prior.State, [][]byte{sysID}, blobStore, parsed.SystemPrompt) {
+		state = MergeCheckpointState(prior.State, root, turnIDs)
+		mode = CheckpointHit
+	} else {
+		if prior != nil && prior.State != nil {
+			mode = CheckpointRebuild
+		}
+		state = &cursorProto.ConversationStateStructure{
+			RootPromptMessagesJson: root,
+			Turns:                  turnIDs,
+			Todos:                  nil,
+			PendingToolCalls:       nil,
+			PreviousWorkspaceUris:  nil,
+			FileStates:             map[string][]byte{},
+			FileStatesV2:           map[string]*cursorProto.FileStateStructure{},
+			SummaryArchives:        nil,
+			TurnTimings:            nil,
+			SubagentStates:         map[string]*cursorProto.SubagentPersistedState{},
+			SelfSummaryCount:       0,
+			ReadPaths:              nil,
+		}
 	}
 
 	maxMode := sel.MaxMode
@@ -372,10 +414,11 @@ func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayloa
 		return nil, err
 	}
 	return &RunPayload{
-		RequestBytes: reqBytes,
-		BlobStore:    blobStore,
-		Conversation: convID,
-		ModelID:      sel.PublicID,
+		RequestBytes:   reqBytes,
+		BlobStore:      blobStore,
+		Conversation:   convID,
+		ModelID:        sel.PublicID,
+		CheckpointMode: mode,
 	}, nil
 }
 
