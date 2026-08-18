@@ -191,7 +191,7 @@ codegen—not by `serve`. Run via `make proto` / `go run ./cmd/proto`.
 
 Flags and environment variables:
 
-- `PROTO_CACHE_DIR` or `--cache-dir`: local cache for tools and descriptor artifacts, defaults to `./.tmp/proto`
+- `PROTO_CACHE_DIR` or `--cache-dir`: local cache for tools and descriptor artifacts, defaults to `./tmp/proto`
 - `PROTO_OUT` or `--proto-out`: generated Go protobuf output directory, defaults to `./lib/cursorProto`
 - `PROTO_AGENT_BIN` or `--agent-bin`: local cursor-agent path (versions dir, share root, or single file)
 - `--force`: ignore input fingerprint cache and regenerate

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultCacheDir = "./.tmp/proto"
+	defaultCacheDir = "./tmp/proto"
 	defaultProtoOut = "./lib/cursorProto"
 )
 
@@ -91,7 +91,7 @@ Inputs:
   - local cursor-agent under ~/.local/share/cursor-agent/versions
   - for Node agents (no embedded FileDescriptorProto): context/.../agent_pb.ts
 
-Tools/cache: PROTO_CACHE_DIR (default ./.tmp/proto)
+Tools/cache: PROTO_CACHE_DIR (default ./tmp/proto)
 Output:      PROTO_OUT       (default ./lib/cursorProto)
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
