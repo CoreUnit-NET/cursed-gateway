@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -250,6 +251,227 @@ func TestControlAPICreateAccountErrors(t *testing.T) {
 	if failed.OK || failed.Error == "" {
 		t.Fatalf("failed = %+v", failed)
 	}
+
+	reject.Close()
+	res, body = doJSON(t, srv, http.MethodPost, "/api/accounts", map[string]string{
+		"refreshToken": fakeJWT(t, "user_down", time.Now().Add(time.Hour)),
+	})
+	if res.StatusCode != http.StatusBadGateway {
+		t.Fatalf("down refresh status=%d body=%s, want 502", res.StatusCode, body)
+	}
+}
+
+func TestControlAPICreateAccountNestedCursorJSON(t *testing.T) {
+	refresh := fakeJWT(t, "user_nested", time.Now().Add(24*time.Hour))
+	access := fakeJWT(t, "user_nested", time.Now().Add(time.Hour))
+	refreshSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"accessToken":  access,
+			"refreshToken": refresh,
+		})
+	}))
+	t.Cleanup(refreshSrv.Close)
+
+	store, err := login_session.NewStore(filepath.Join(t.TempDir(), "data.json"), &cursor_account_sdk.Client{
+		HTTP: refreshSrv.Client(),
+		Endpoints: cursor_account_sdk.Endpoints{
+			RefreshURL: refreshSrv.URL,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	h := &Handler{Store: store, Attempts: &login_session.LoginAttempts{Store: store}}
+	srv := httptest.NewServer(testMux(h))
+	t.Cleanup(srv.Close)
+
+	res, body := doJSON(t, srv, http.MethodPost, "/api/accounts", map[string]any{
+		"cursor": map[string]string{"refresh": refresh},
+	})
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("nested POST status=%d body=%s", res.StatusCode, body)
+	}
+	var created addAccountResponse
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("create json: %v", err)
+	}
+	if !created.OK || created.ID != "user_nested" {
+		t.Fatalf("created = %+v", created)
+	}
+	if strings.Contains(string(body), access) || strings.Contains(string(body), refresh) {
+		t.Fatalf("tokens leaked in nested create: %s", body)
+	}
+
+	res, body = doJSON(t, srv, http.MethodGet, "/api/accounts/user_nested", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET nested account status=%d body=%s", res.StatusCode, body)
+	}
+	if strings.Contains(string(body), access) || strings.Contains(string(body), refresh) {
+		t.Fatalf("tokens leaked in nested get: %s", body)
+	}
+}
+
+func TestControlAPIMissingAndBadBodies(t *testing.T) {
+	store, err := login_session.NewStore(filepath.Join(t.TempDir(), "data.json"), &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	h := &Handler{Store: store, Attempts: &login_session.LoginAttempts{Store: store}}
+	srv := httptest.NewServer(testMux(h))
+	t.Cleanup(srv.Close)
+
+	res, body := doJSON(t, srv, http.MethodGet, "/api/login/missing", nil)
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET missing login status=%d body=%s", res.StatusCode, body)
+	}
+	assertErrorBody(t, body, "login attempt not found")
+
+	res, body = doJSON(t, srv, http.MethodDelete, "/api/login/missing", nil)
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("DELETE missing login status=%d body=%s", res.StatusCode, body)
+	}
+	assertErrorBody(t, body, "login attempt not found")
+
+	res, body = doJSON(t, srv, http.MethodGet, "/api/accounts/missing", nil)
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET missing account status=%d body=%s", res.StatusCode, body)
+	}
+	assertErrorBody(t, body, "account not found")
+
+	res, body = doJSON(t, srv, http.MethodDelete, "/api/accounts/missing", nil)
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("DELETE missing account status=%d body=%s", res.StatusCode, body)
+	}
+	assertErrorBody(t, body, "account not found")
+
+	res, body = doJSON(t, srv, http.MethodPost, "/api/accounts", nil)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty body status=%d body=%s", res.StatusCode, body)
+	}
+	assertCreateError(t, body, errEmptyBody.Error())
+
+	res, body = doRaw(t, srv, http.MethodPost, "/api/accounts", "application/json", []byte("{"))
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad json status=%d body=%s", res.StatusCode, body)
+	}
+	assertCreateError(t, body, "unexpected end of JSON input")
+
+	res, body = doRaw(t, srv, http.MethodPost, "/api/accounts", "application/json", bytes.Repeat([]byte("a"), maxBodyBytes+1))
+	if res.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("too large status=%d body=%s", res.StatusCode, body)
+	}
+	assertCreateError(t, body, errBodyTooLarge.Error())
+
+	res, _ = doJSON(t, srv, http.MethodPost, "/api", nil)
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api status=%d, want 405", res.StatusCode)
+	}
+
+	res, _ = doJSON(t, srv, http.MethodPut, "/api/accounts", map[string]string{"refreshToken": "x"})
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("PUT /api/accounts status=%d, want 405", res.StatusCode)
+	}
+}
+
+func TestControlAPILoginAttemptFailed(t *testing.T) {
+	store, err := login_session.NewStore(filepath.Join(t.TempDir(), "data.json"), &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	attempts := &login_session.LoginAttempts{
+		Store:          store,
+		MaxOpen:        1,
+		AttemptTimeout: time.Minute,
+		Keep:           time.Minute,
+		Poll: func(ctx context.Context, uuid, verifier string) (cursor_account_sdk.Credentials, error) {
+			return cursor_account_sdk.Credentials{}, errors.New("poll exploded")
+		},
+	}
+	t.Cleanup(attempts.Stop)
+
+	h := &Handler{Store: store, Attempts: attempts, MaxLoginAttempts: 1}
+	srv := httptest.NewServer(testMux(h))
+	t.Cleanup(srv.Close)
+
+	res, body := doJSON(t, srv, http.MethodPost, "/api/login", nil)
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/login status=%d body=%s", res.StatusCode, body)
+	}
+	var created loginView
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("create json: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var got loginView
+	for time.Now().Before(deadline) {
+		res, body = doJSON(t, srv, http.MethodGet, "/api/login/"+created.ID, nil)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("GET login status=%d body=%s", res.StatusCode, body)
+		}
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("get json: %v", err)
+		}
+		if got.State == login_session.AttemptFailed {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got.State != login_session.AttemptFailed {
+		t.Fatalf("state=%q, want failed: %+v", got.State, got)
+	}
+	if got.Error == "" {
+		t.Fatal("expected error on failed attempt")
+	}
+
+	res, body = doJSON(t, srv, http.MethodGet, "/api", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api status=%d body=%s", res.StatusCode, body)
+	}
+	var state serviceState
+	if err := json.Unmarshal(body, &state); err != nil {
+		t.Fatalf("service json: %v", err)
+	}
+	if state.LoginAttempts != 1 {
+		t.Fatalf("login_attempts=%d, want 1", state.LoginAttempts)
+	}
+}
+
+func TestControlAPIUnconfigured(t *testing.T) {
+	h := &Handler{}
+	srv := httptest.NewServer(testMux(h))
+	t.Cleanup(srv.Close)
+
+	res, body := doJSON(t, srv, http.MethodGet, "/api", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api status=%d body=%s", res.StatusCode, body)
+	}
+	var state serviceState
+	if err := json.Unmarshal(body, &state); err != nil {
+		t.Fatalf("service json: %v", err)
+	}
+	if state.Accounts != 0 || state.LoginAttempts != 0 || state.MaxLoginAttempts != 3 || state.LoginAttemptMins != 3 || state.LoginKeepMins != 5 {
+		t.Fatalf("unconfigured service = %+v", state)
+	}
+
+	for _, tc := range []struct {
+		method, path, want string
+	}{
+		{http.MethodGet, "/api/accounts", "account store is not configured"},
+		{http.MethodPost, "/api/accounts", "account store is not configured"},
+		{http.MethodGet, "/api/accounts/x", "account store is not configured"},
+		{http.MethodDelete, "/api/accounts/x", "account store is not configured"},
+		{http.MethodGet, "/api/login", "login attempts are not configured"},
+		{http.MethodPost, "/api/login", "login attempts are not configured"},
+		{http.MethodGet, "/api/login/x", "login attempts are not configured"},
+		{http.MethodDelete, "/api/login/x", "login attempts are not configured"},
+	} {
+		res, body := doJSON(t, srv, tc.method, tc.path, nil)
+		if res.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("%s %s status=%d body=%s, want 500", tc.method, tc.path, res.StatusCode, body)
+		}
+		assertErrorBody(t, body, tc.want)
+	}
 }
 
 func testMux(h *Handler) *http.ServeMux {
@@ -260,20 +482,33 @@ func testMux(h *Handler) *http.ServeMux {
 
 func doJSON(t *testing.T, srv *httptest.Server, method, path string, payload any) (*http.Response, []byte) {
 	t.Helper()
-	var rdr io.Reader
+	var data []byte
 	if payload != nil {
-		data, err := json.Marshal(payload)
+		var err error
+		data, err = json.Marshal(payload)
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	contentType := ""
+	if payload != nil {
+		contentType = "application/json"
+	}
+	return doRaw(t, srv, method, path, contentType, data)
+}
+
+func doRaw(t *testing.T, srv *httptest.Server, method, path, contentType string, data []byte) (*http.Response, []byte) {
+	t.Helper()
+	var rdr io.Reader
+	if data != nil {
 		rdr = bytes.NewReader(data)
 	}
 	req, err := http.NewRequest(method, srv.URL+path, rdr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	res, err := srv.Client().Do(req)
 	if err != nil {
@@ -285,6 +520,28 @@ func doJSON(t *testing.T, srv *httptest.Server, method, path string, payload any
 		t.Fatal(err)
 	}
 	return res, body
+}
+
+func assertErrorBody(t *testing.T, body []byte, want string) {
+	t.Helper()
+	var got errorBody
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("error json: %v body=%s", err, body)
+	}
+	if got.Error != want {
+		t.Fatalf("error=%q, want %q body=%s", got.Error, want, body)
+	}
+}
+
+func assertCreateError(t *testing.T, body []byte, want string) {
+	t.Helper()
+	var got addAccountResponse
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("create error json: %v body=%s", err, body)
+	}
+	if got.OK || got.Error != want {
+		t.Fatalf("create error=%+v, want %q", got, want)
+	}
 }
 
 func fakeJWT(t *testing.T, sub string, exp time.Time) string {
