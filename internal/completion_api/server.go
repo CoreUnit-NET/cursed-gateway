@@ -96,6 +96,9 @@ func (s *Server) withAccess(ctx context.Context, fn func(access string) error) e
 			s.log().Error("missing blob; not rotating accounts", "session", acc.ID, "err", err)
 			return err
 		}
+		if errors.Is(err, cursor_api_sdk.ErrBadModelName) {
+			return err
+		}
 		if errors.Is(err, cursor_api_sdk.ErrRateLimited) {
 			s.Pool.MarkRateLimited(acc.ID)
 			s.log().Warn("rate limited; cooling account", "session", acc.ID)
@@ -180,6 +183,18 @@ func (s *Server) writeAPIError(w http.ResponseWriter, r *http.Request, status in
 		body.Error.Code = "bad_request"
 	}
 	writeJSON(w, status, body)
+}
+
+func (s *Server) writeUpstreamError(w http.ResponseWriter, r *http.Request, err error) {
+	msg := "upstream error"
+	if err != nil {
+		msg = err.Error()
+	}
+	status := http.StatusBadGateway
+	if errors.Is(err, cursor_api_sdk.ErrBadModelName) {
+		status = http.StatusBadRequest
+	}
+	s.writeAPIError(w, r, status, msg)
 }
 
 func readJSONBody(r *http.Request, max int64, dst any) error {

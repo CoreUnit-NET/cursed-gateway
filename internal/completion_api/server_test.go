@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -221,5 +223,125 @@ func TestWriteAPIErrorLogsErrorForBadGateway(t *testing.T) {
 	}
 	if !strings.Contains(logged, "status=502") {
 		t.Fatalf("expected status attr, got %q", logged)
+	}
+}
+
+func TestWriteUpstreamErrorBadModelName(t *testing.T) {
+	srv := &Server{Log: slog.Default()}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/ai/v1/chat/completions", nil)
+	err := &cursor_api_sdk.APIError{
+		Code:       "not_found",
+		Message:    "Error",
+		DebugError: "ERROR_BAD_MODEL_NAME",
+		Detail:     `Model name is not valid: "x"`,
+		ModelID:    "x",
+		Err:        cursor_api_sdk.ErrBadModelName,
+	}
+	srv.writeUpstreamError(rec, req, err)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	var body errorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body json: %v", err)
+	}
+	if body.Error.Type != "invalid_request_error" || body.Error.Code != "bad_request" {
+		t.Fatalf("body = %#v", body)
+	}
+	if !strings.Contains(body.Error.Message, "ERROR_BAD_MODEL_NAME") {
+		t.Fatalf("message = %q", body.Error.Message)
+	}
+}
+
+func TestWithAccessDoesNotFailoverOnBadModelName(t *testing.T) {
+	pool := &multiPool{ids: []string{"s1", "s2"}}
+	srv := &Server{Pool: pool, Log: slog.Default()}
+	calls := 0
+	err := srv.withAccess(context.Background(), func(access string) error {
+		calls++
+		return &cursor_api_sdk.APIError{
+			Code:       "not_found",
+			DebugError: "ERROR_BAD_MODEL_NAME",
+			Err:        cursor_api_sdk.ErrBadModelName,
+		}
+	})
+	if !errors.Is(err, cursor_api_sdk.ErrBadModelName) {
+		t.Fatalf("err = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("fn calls = %d, want 1 (no account rotation)", calls)
+	}
+	if len(pool.ensures) != 1 || pool.ensures[0] != "s1" {
+		t.Fatalf("ensures = %#v", pool.ensures)
+	}
+	if len(pool.used) != 0 {
+		t.Fatalf("MarkUsed should not run: %#v", pool.used)
+	}
+}
+
+type startErrAPI struct {
+	recAPI
+	err    error
+	starts int
+}
+
+func (a *startErrAPI) StartRun(ctx context.Context, accessToken string, payload *cursor_api_sdk.RunPayload, bridgeTools bool) (*cursor_api_sdk.RunControl, error) {
+	a.starts++
+	return nil, a.err
+}
+
+func TestChatCompletionsBadModelNameReturns400(t *testing.T) {
+	pool := &multiPool{ids: []string{"s1", "s2"}}
+	api := &startErrAPI{err: &cursor_api_sdk.APIError{
+		Code:       "not_found",
+		Message:    "Error",
+		DebugError: "ERROR_BAD_MODEL_NAME",
+		Detail:     `Model name is not valid: "x"`,
+		Err:        cursor_api_sdk.ErrBadModelName,
+	}}
+	h := &Handler{Server: &Server{Pool: pool, API: api, Log: slog.Default()}}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	payload := map[string]any{
+		"model": "x",
+		"messages": []map[string]string{
+			{"role": "user", "content": "hi"},
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Post(srv.URL+"/ai/v1/chat/completions", "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", res.StatusCode, body)
+	}
+	var out errorBody
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("json: %v body=%s", err, body)
+	}
+	if out.Error.Type != "invalid_request_error" || out.Error.Code != "bad_request" {
+		t.Fatalf("body=%s", body)
+	}
+	if !strings.Contains(out.Error.Message, "ERROR_BAD_MODEL_NAME") {
+		t.Fatalf("message=%q", out.Error.Message)
+	}
+	if api.starts != 1 {
+		t.Fatalf("StartRun calls=%d, want 1", api.starts)
+	}
+	if len(pool.ensures) != 1 {
+		t.Fatalf("ensures=%#v, want one account", pool.ensures)
 	}
 }

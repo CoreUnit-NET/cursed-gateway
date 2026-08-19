@@ -52,7 +52,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		}
 		if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
 			br.RC.Close()
-			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
+			h.Server.writeUpstreamError(dw, r, err)
 			_ = dw.Commit()
 			return
 		}
@@ -63,7 +63,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		text, calls, err := consumeRun(br.RC, toolCallGrace)
 		if err != nil {
 			br.RC.Close()
-			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
+			h.Server.writeUpstreamError(dw, r, err)
 			_ = dw.Commit()
 			return
 		}
@@ -155,7 +155,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		return nil
 	})
 	if err != nil {
-		h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
+		h.Server.writeUpstreamError(dw, r, err)
 		_ = dw.Commit()
 		return
 	}
@@ -239,13 +239,13 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		}
 		if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
 			br.RC.Close()
-			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
+			h.Server.writeUpstreamError(dw, r, err)
 			_ = dw.Commit()
 			return
 		}
 		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h, "", ""); err != nil && !committed {
 			br.RC.Close()
-			h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
+			h.Server.writeUpstreamError(dw, r, err)
 			_ = dw.Commit()
 		}
 		return
@@ -290,7 +290,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		return nil
 	})
 	if err != nil && !committed {
-		h.Server.writeAPIError(dw, r, http.StatusBadGateway, err.Error())
+		h.Server.writeUpstreamError(dw, r, err)
 		_ = dw.Commit()
 	}
 }
