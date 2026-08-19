@@ -46,7 +46,7 @@ body::before {
   opacity: 0.45;
 }
 
-button, input, textarea { font: inherit; color: inherit; }
+button, input, textarea, select { font: inherit; color: inherit; }
 a { color: var(--blue-hot); text-decoration: none; }
 a:hover { color: var(--purple-hot); }
 :focus-visible {
@@ -341,7 +341,7 @@ a.btn.primary { color: #12002a; }
 .err { color: var(--danger); }
 
 label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
-input, textarea {
+input, textarea, select {
   background: rgba(5, 0, 20, 0.7);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -349,12 +349,47 @@ input, textarea {
   outline: none;
   width: 100%;
 }
-input:focus, textarea:focus {
+input:focus, textarea:focus, select:focus {
   border-color: var(--blue);
   box-shadow: var(--glow-b);
 }
+input:disabled, textarea:disabled, select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 textarea { min-height: 180px; resize: vertical; font-family: var(--mono); font-size: 13px; }
+textarea.short { min-height: 88px; }
 .filter { max-width: 420px; }
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  padding-bottom: 10px;
+}
+.check input { width: auto; margin: 0; }
+.inspect {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(5, 0, 20, 0.35);
+}
+.inspect summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.inspect .output { margin: 0 10px 10px; max-height: 280px; }
 
 .url-box {
   font: 12px/1.45 var(--mono);
@@ -364,6 +399,18 @@ textarea { min-height: 180px; resize: vertical; font-family: var(--mono); font-s
   background: rgba(5, 0, 20, 0.65);
   word-break: break-all;
   color: var(--blue-hot);
+}
+.output {
+  font: 13px/1.5 var(--mono);
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-blue);
+  background: rgba(5, 0, 20, 0.65);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  max-height: 420px;
+  overflow: auto;
 }
 
 .banner {
@@ -405,6 +452,7 @@ dialog p { margin: 0; color: var(--muted); }
   .grid-2 { grid-template-columns: 1fr; }
   .head h2 { font-size: 26px; }
   .row { grid-template-columns: 1fr; }
+  .field-row { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
