@@ -161,10 +161,10 @@ func TestWithAccessFailoversOnRateLimit(t *testing.T) {
 	}
 }
 
-func TestWriteAPIErrorLogsWarn(t *testing.T) {
+func TestWriteAPIErrorLogsInfoForBadRequest(t *testing.T) {
 	var logBuf bytes.Buffer
 	srv := &Server{
-		Log: slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		Log: slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})),
 	}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -184,8 +184,11 @@ func TestWriteAPIErrorLogsWarn(t *testing.T) {
 	}
 
 	logged := logBuf.String()
-	if !strings.Contains(logged, "level=WARN") {
-		t.Fatalf("expected WARN log, got %q", logged)
+	if !strings.Contains(logged, "level=INFO") {
+		t.Fatalf("expected INFO log, got %q", logged)
+	}
+	if strings.Contains(logged, "level=WARN") || strings.Contains(logged, "level=ERROR") {
+		t.Fatalf("400 must not warn/error, got %q", logged)
 	}
 	if !strings.Contains(logged, "msg=\"api error\"") {
 		t.Fatalf("expected api error msg, got %q", logged)
@@ -198,5 +201,25 @@ func TestWriteAPIErrorLogsWarn(t *testing.T) {
 	}
 	if !strings.Contains(logged, "invalid JSON") {
 		t.Fatalf("expected err attr, got %q", logged)
+	}
+}
+
+func TestWriteAPIErrorLogsErrorForBadGateway(t *testing.T) {
+	var logBuf bytes.Buffer
+	srv := &Server{
+		Log: slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})),
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ai/v1/models", nil)
+	srv.writeAPIError(rec, req, http.StatusBadGateway, "no sessions in auth store; run login or import first")
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", rec.Code)
+	}
+	logged := logBuf.String()
+	if !strings.Contains(logged, "level=ERROR") {
+		t.Fatalf("expected ERROR log, got %q", logged)
+	}
+	if !strings.Contains(logged, "status=502") {
+		t.Fatalf("expected status attr, got %q", logged)
 	}
 }

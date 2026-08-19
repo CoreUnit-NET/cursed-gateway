@@ -62,7 +62,14 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int,
 	if r != nil {
 		attrs = append(attrs, "method", r.Method, "path", r.URL.Path)
 	}
-	h.log().Warn("control api error", attrs...)
+	switch {
+	case status >= 500:
+		h.log().Error("control api error", attrs...)
+	case status == http.StatusTooManyRequests || status == http.StatusConflict:
+		h.log().Warn("control api error", attrs...)
+	default:
+		h.log().Info("control api error", attrs...)
+	}
 	writeJSON(w, status, errorBody{Error: msg})
 }
 

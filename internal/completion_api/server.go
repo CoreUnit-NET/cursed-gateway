@@ -163,7 +163,14 @@ func (s *Server) writeAPIError(w http.ResponseWriter, r *http.Request, status in
 	if r != nil {
 		attrs = append(attrs, "method", r.Method, "path", r.URL.Path)
 	}
-	s.log().Warn("api error", attrs...)
+	switch {
+	case status >= 500:
+		s.log().Error("api error", attrs...)
+	case status == http.StatusTooManyRequests || status == http.StatusConflict:
+		s.log().Warn("api error", attrs...)
+	default:
+		s.log().Info("api error", attrs...)
+	}
 	var body errorBody
 	body.Error.Message = msg
 	body.Error.Type = "server_error"
