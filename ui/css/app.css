@@ -446,7 +446,8 @@ dialog p { margin: 0; color: var(--muted); }
   width: min(360px, calc(100vw - 32px));
 }
 .toast { padding: 11px 13px; border-left: 3px solid var(--blue-hot); }
-.toast.bad { border-left-color: var(--danger); }
+.toast.warn { border-left-color: var(--warn); }
+.toast.bad, .toast.error { border-left-color: var(--danger); }
 
 @media (max-width: 840px) {
   .grid-2 { grid-template-columns: 1fr; }

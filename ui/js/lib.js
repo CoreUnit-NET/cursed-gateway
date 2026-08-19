@@ -62,10 +62,15 @@ export function errText(error, fallback = "request failed") {
   return message ? String(message) : fallback;
 }
 
-export function toast(message, bad = false) {
+export function toast(message, kindOrBad = "info") {
+  // Backward compatible: historically `toast(message, true)` meant "bad".
+  let kind = "info";
+  if (typeof kindOrBad === "boolean") kind = kindOrBad ? "error" : "info";
+  else if (kindOrBad) kind = String(kindOrBad);
+
   const el = document.createElement("div");
-  el.className = "toast" + (bad ? " bad" : "");
-  el.setAttribute("role", "status");
+  el.className = "toast" + (kind === "error" ? " bad" : "") + " " + kind;
+  el.setAttribute("role", kind === "error" ? "alert" : "status");
   el.textContent = message;
   $("toasts").appendChild(el);
   setTimeout(() => el.remove(), 4200);

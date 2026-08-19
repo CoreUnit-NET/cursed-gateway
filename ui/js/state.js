@@ -1,5 +1,5 @@
 import { Control } from "./api.js";
-import { $, setLive, toast } from "./lib.js";
+import { $, errText, setLive, toast } from "./lib.js";
 import { parseHash, watchingLogins } from "./router.js";
 
 export const state = {
@@ -16,16 +16,48 @@ export const state = {
 
 let inflight = null;
 let pollTimer = 0;
+let connectivitySig = null;
 
 function noteLoginChanges(previous, next) {
   if (!state.ready) return;
   const was = new Map(previous.map((item) => [item.id, item.state]));
   for (const item of next) {
     if (was.get(item.id) !== "pending") continue;
-    if (item.state === "succeeded") toast("login succeeded · account added");
-    else if (item.state === "failed") toast(item.error || "login failed", true);
-    else if (item.state === "expired") toast("login expired", true);
+    if (item.state === "succeeded")
+      toast("login succeeded · account added", "info");
+    else if (item.state === "failed")
+      toast(item.error || "login failed", "error");
+    else if (item.state === "expired") toast("login expired", "warn");
   }
+}
+
+function connectivitySignature(err) {
+  if (!err) return "ok";
+  const bits = [];
+  if (err && err.network) bits.push("network");
+  if (err && err.aborted) bits.push("aborted");
+  if (err && typeof err.status !== "undefined")
+    bits.push("status=" + err.status);
+  bits.push(String(err && err.message ? err.message : err));
+  return bits.join("|");
+}
+
+function notifyConnectivityIfChanged(nextConnected, err) {
+  const sig = nextConnected ? "ok" : connectivitySignature(err);
+  if (connectivitySig === null) {
+    connectivitySig = sig;
+    return;
+  }
+  if (sig === connectivitySig) return;
+  connectivitySig = sig;
+  if (nextConnected) toast("back online · /api", "info");
+  else
+    toast(
+      err && err.network
+        ? "offline · cannot reach /api"
+        : errText(err, "offline"),
+      err && err.network ? "warn" : "error",
+    );
 }
 
 async function load() {
@@ -44,6 +76,7 @@ async function load() {
   $("nav-accounts").textContent = String(state.accounts.length);
   $("nav-login").textContent = String(state.login.length);
   setLive("ok", "live · /api");
+  notifyConnectivityIfChanged(true);
   state.ready = true;
 }
 
@@ -55,6 +88,7 @@ export function refreshAll({ silent = false } = {}) {
       state.connected = false;
       state.error = err;
       setLive("bad", "offline");
+      notifyConnectivityIfChanged(false, err);
       throw err;
     })
     .finally(() => {
