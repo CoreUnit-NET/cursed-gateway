@@ -7,11 +7,12 @@ Policy (verbose = -b / --verbose / VERBOSE):
 
 Default (info+):
   info  — events and changes (handled, started, changed); not repeating loop noise
+          HTTP access logs for handled requests; HTTP 4xx handler errors
   warn  — near limits, missing optional data with fallback, report-worthy but non-blocking
-  error — real / unexpected failures
+  error — real / unexpected failures (including HTTP 5xx handler errors)
 
 Verbose also enables:
-  debug — repeating / loop actions and other low-interest chatter
+  debug — repeating / loop actions, /healthz access logs, and other low-interest chatter
   trace — deeper decision points with no existing log; never duplicate an info/debug line
 
 Logging always uses log/slog with a text handler on stderr.

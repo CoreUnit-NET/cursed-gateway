@@ -47,9 +47,13 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /login: %v", err)
 	}
+	body, _ := io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusNotFound {
-		t.Fatalf("GET /login status=%d, want 404", res.StatusCode)
+		t.Fatalf("GET /login status=%d body=%s, want 404", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"error":"not found"`) {
+		t.Fatalf("GET /login body=%s, want JSON not found", body)
 	}
 
 	res, err = client.Get(base + "/ai/v1/models")
@@ -74,9 +78,13 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /ai/v1/chat/completions: %v", err)
 	}
+	body, _ = io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("GET /ai/v1/chat/completions status=%d, want 405 (POST mounted)", res.StatusCode)
+		t.Fatalf("GET /ai/v1/chat/completions status=%d body=%s, want 405 (POST mounted)", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"code":"method_not_allowed"`) {
+		t.Fatalf("GET /ai/v1/chat/completions body=%s, want JSON method_not_allowed", body)
 	}
 
 	postChat, err := http.NewRequest(http.MethodPost, base+"/ai/v1/chat/completions", strings.NewReader(`{"model":"x"}`))
@@ -88,7 +96,7 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /ai/v1/chat/completions: %v", err)
 	}
-	body, _ := io.ReadAll(res.Body)
+	body, _ = io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("POST /ai/v1/chat/completions status=%d body=%s, want 400", res.StatusCode, body)
@@ -180,6 +188,201 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET /api/accounts/missing status=%d, want 404", res.StatusCode)
+	}
+
+	res, err = client.Get(base + "/models")
+	if err != nil {
+		t.Fatalf("GET /models: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadGateway {
+		t.Fatalf("GET /models status=%d, want 502 (empty store)", res.StatusCode)
+	}
+
+	res, err = client.Get(base + "/chat/completions")
+	if err != nil {
+		t.Fatalf("GET /chat/completions: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /chat/completions status=%d, want 405", res.StatusCode)
+	}
+
+	res, err = client.Get(base + "/completions")
+	if err != nil {
+		t.Fatalf("GET /completions: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /completions status=%d, want 405", res.StatusCode)
+	}
+
+	postModels, err := http.NewRequest(http.MethodPost, base+"/ai/v1/models", nil)
+	if err != nil {
+		t.Fatalf("POST /ai/v1/models: %v", err)
+	}
+	res, err = client.Do(postModels)
+	if err != nil {
+		t.Fatalf("POST /ai/v1/models: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /ai/v1/models status=%d, want 405", res.StatusCode)
+	}
+
+	res, err = client.Get(base + "/ai/v1/nope")
+	if err != nil {
+		t.Fatalf("GET /ai/v1/nope: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /ai/v1/nope status=%d body=%s, want 404", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"code":"not_found"`) {
+		t.Fatalf("GET /ai/v1/nope body=%s, want JSON not_found", body)
+	}
+
+	postEmpty, err := http.NewRequest(http.MethodPost, base+"/v1/chat/completions", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("POST empty chat: %v", err)
+	}
+	postEmpty.Header.Set("Content-Type", "application/json")
+	res, err = client.Do(postEmpty)
+	if err != nil {
+		t.Fatalf("POST empty chat: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST empty chat status=%d body=%s, want 400", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "messages is required") {
+		t.Fatalf("POST empty chat body=%s, want messages is required", body)
+	}
+
+	postSystem, err := http.NewRequest(http.MethodPost, base+"/chat/completions", strings.NewReader(`{"model":"x","messages":[{"role":"system","content":"only"}]}`))
+	if err != nil {
+		t.Fatalf("POST system-only: %v", err)
+	}
+	postSystem.Header.Set("Content-Type", "application/json")
+	res, err = client.Do(postSystem)
+	if err != nil {
+		t.Fatalf("POST system-only: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST system-only status=%d body=%s, want 400", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "No user message found") {
+		t.Fatalf("POST system-only body=%s, want No user message found", body)
+	}
+
+	postAPI, err := http.NewRequest(http.MethodPost, base+"/api", nil)
+	if err != nil {
+		t.Fatalf("POST /api: %v", err)
+	}
+	res, err = client.Do(postAPI)
+	if err != nil {
+		t.Fatalf("POST /api: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api status=%d body=%s, want 405", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"error":"method not allowed"`) {
+		t.Fatalf("POST /api body=%s, want JSON method not allowed", body)
+	}
+
+	putAccounts, err := http.NewRequest(http.MethodPut, base+"/api/accounts", strings.NewReader(`{"refreshToken":"x"}`))
+	if err != nil {
+		t.Fatalf("PUT /api/accounts: %v", err)
+	}
+	putAccounts.Header.Set("Content-Type", "application/json")
+	res, err = client.Do(putAccounts)
+	if err != nil {
+		t.Fatalf("PUT /api/accounts: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("PUT /api/accounts status=%d, want 405", res.StatusCode)
+	}
+
+	res, err = client.Get(base + "/v1/unknown")
+	if err != nil {
+		t.Fatalf("GET /v1/unknown: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /v1/unknown status=%d, want 404", res.StatusCode)
+	}
+
+	postEmptyComp, err := http.NewRequest(http.MethodPost, base+"/completions", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("POST empty completions: %v", err)
+	}
+	postEmptyComp.Header.Set("Content-Type", "application/json")
+	res, err = client.Do(postEmptyComp)
+	if err != nil {
+		t.Fatalf("POST empty completions: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST empty completions status=%d body=%s, want 400", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "No user message found") {
+		t.Fatalf("POST empty completions body=%s, want No user message found", body)
+	}
+
+	postBadChat, err := http.NewRequest(http.MethodPost, base+"/chat/completions", strings.NewReader(`{`))
+	if err != nil {
+		t.Fatalf("POST bad chat json: %v", err)
+	}
+	postBadChat.Header.Set("Content-Type", "application/json")
+	res, err = client.Do(postBadChat)
+	if err != nil {
+		t.Fatalf("POST bad chat json: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST bad chat json status=%d body=%s, want 400", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "invalid JSON") {
+		t.Fatalf("POST bad chat json body=%s, want invalid JSON", body)
+	}
+
+	postEmptyAccounts, err := http.NewRequest(http.MethodPost, base+"/api/accounts", nil)
+	if err != nil {
+		t.Fatalf("POST empty accounts: %v", err)
+	}
+	res, err = client.Do(postEmptyAccounts)
+	if err != nil {
+		t.Fatalf("POST empty accounts: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST empty accounts status=%d body=%s, want 400", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "request body is empty") {
+		t.Fatalf("POST empty accounts body=%s, want request body is empty", body)
+	}
+
+	res, err = client.Get(base + "/api/login/missing")
+	if err != nil {
+		t.Fatalf("GET /api/login/missing: %v", err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /api/login/missing status=%d body=%s, want 404", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "login attempt not found") {
+		t.Fatalf("GET /api/login/missing body=%s, want login attempt not found", body)
 	}
 
 	cancel()

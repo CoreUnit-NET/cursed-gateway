@@ -101,7 +101,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	httpSrv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           wrapMux(mux, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
