@@ -33,8 +33,8 @@ export function renderOverview(page, { patch }) {
           <div>
             <h2>Overview</h2>
             <p>
-              Control API home. Pick a section to manage the account pool or run
-              a Cursor PKCE login.
+              Control API home. Pick a section to manage the account pool, run a
+              Cursor PKCE login, or try same-origin /ai.
             </p>
           </div>
         </div>
@@ -83,6 +83,21 @@ export function renderOverview(page, { patch }) {
             <em>Login · start</em>
             <strong>Start a login</strong>
             <span>Create a pending attempt and open the Cursor URL.</span>
+          </a>
+          <a class="mode-card" href="#/ai">
+            <em>AI · models</em>
+            <strong>List catalog</strong>
+            <span
+              >GET /ai/v1/models. Default Auto is id <code>default</code>.</span
+            >
+          </a>
+          <a class="mode-card" href="#/ai/test">
+            <em>AI · test</em>
+            <strong>Test a model</strong>
+            <span
+              >POST /ai/v1/chat/completions or /ai/v1/completions. Pick a model,
+              optional SSE, cancel, inspect JSON.</span
+            >
           </a>
         </div>`,
     );

@@ -2,7 +2,10 @@ import { $, copyText, errText, toast } from "./lib.js";
 import { parseHash, routeKey } from "./router.js";
 import { refreshAll, state, stopPoll, syncPoll } from "./state.js";
 import {
+  cancelAITest,
   closeLogin,
+  copyAIJson,
+  listModels,
   removeAccount,
   render,
   renderOffline,
@@ -57,6 +60,21 @@ document.addEventListener("click", async (event) => {
     if (start) {
       event.preventDefault();
       await startLogin();
+      return;
+    }
+    if (action?.dataset.action === "list-models") {
+      event.preventDefault();
+      await listModels();
+      return;
+    }
+    if (action?.dataset.action === "cancel-ai-test") {
+      event.preventDefault();
+      cancelAITest();
+      return;
+    }
+    if (action?.dataset.action === "copy-ai-json") {
+      event.preventDefault();
+      copyAIJson(action.dataset.aiJson);
       return;
     }
     if (delAccount) {

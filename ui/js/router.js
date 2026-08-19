@@ -24,6 +24,11 @@ export function parseHash() {
     if (parts[1]) return { tab: "login", mode: "detail", id: parts[1] };
     return { tab: "login", mode: "attempts" };
   }
+  if (parts[0] === "ai") {
+    if (parts[1] === "test")
+      return { tab: "ai", mode: "test", id: parts[2] || "" };
+    return { tab: "ai", mode: "models" };
+  }
   return { tab: "overview", mode: "home" };
 }
 
@@ -44,4 +49,9 @@ export function accountHref(id) {
 
 export function loginHref(id) {
   return "#/login/" + encodeURIComponent(id);
+}
+
+export function aiTestHref(model) {
+  if (!model) return "#/ai/test";
+  return "#/ai/test/" + encodeURIComponent(model);
 }

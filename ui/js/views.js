@@ -1,6 +1,7 @@
 import { errText, html, mountView, navActive, setModes } from "./lib.js";
 import { state } from "./state.js";
 import { renderAccounts } from "./views/accounts.js";
+import { renderAI } from "./views/ai.js";
 import { renderLogin } from "./views/login.js";
 import { renderOverview } from "./views/overview.js";
 
@@ -23,6 +24,12 @@ function modesFor(route) {
     if (route.mode === "detail")
       items.push({ id: "detail", href: location.hash, label: "Attempt" });
     return items;
+  }
+  if (route.tab === "ai") {
+    return [
+      { id: "models", href: "#/ai", label: "Models" },
+      { id: "test", href: "#/ai/test", label: "Test" },
+    ];
   }
   return [];
 }
@@ -63,8 +70,10 @@ export async function render(
   if (route.tab === "accounts")
     return renderAccounts(page, route, { patch, stale });
   if (route.tab === "login") return renderLogin(page, route, { patch, stale });
+  if (route.tab === "ai") return renderAI(page, route, { patch, stale });
   renderOverview(page, { patch });
 }
 
 export { closeLogin, startLogin } from "./views/login.js";
 export { removeAccount } from "./views/accounts.js";
+export { cancelAITest, copyAIJson, listModels } from "./views/ai.js";
