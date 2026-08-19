@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cursed-gateway · control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="shell">
+    <div class="chrome">
+      <header class="top">
+        <div class="brand">
+          <div class="mark">c</div>
+          <div>
+            <h1>cursed-gateway</h1>
+            <small>control surface</small>
+          </div>
+        </div>
+        <button class="live" type="button" data-action="refresh" title="Refresh">
+          <span class="dot" id="dot"></span>
+          <span id="live-label">connecting</span>
+        </button>
+      </header>
+      <div class="navs">
+        <nav class="tabs" aria-label="Primary">
+          <a href="#/" data-nav="overview">Overview</a>
+          <a href="#/accounts" data-nav="accounts">Accounts <span class="count" id="nav-accounts">0</span></a>
+          <a href="#/login" data-nav="login">Login <span class="count" id="nav-login">0</span></a>
+        </nav>
+        <nav class="modes" id="modes" aria-label="Section modes" hidden></nav>
+      </div>
+    </div>
+    <main class="page" id="page"></main>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <dialog id="dialog" aria-labelledby="dlg-title"></dialog>
+  <noscript>This control UI needs JavaScript and a same-origin /api.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
