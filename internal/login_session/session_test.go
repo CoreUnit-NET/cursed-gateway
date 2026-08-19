@@ -210,6 +210,34 @@ func TestParseImportRefreshOnly(t *testing.T) {
 	}
 }
 
+func TestParseAuthPayload(t *testing.T) {
+	refresh := fakeJWT(t, "user_payload", time.Now().Add(time.Hour))
+	access := fakeJWT(t, "user_payload", time.Now().Add(time.Hour))
+
+	creds, err := ParseAuthPayload([]byte(`{"refreshToken":"` + refresh + `","accessToken":"` + access + `"}`))
+	if err != nil {
+		t.Fatalf("ParseAuthPayload: %v", err)
+	}
+	if creds.Refresh != refresh || creds.Access != access {
+		t.Fatalf("creds = %+v", creds)
+	}
+
+	nested, err := ParseAuthPayload([]byte(`{"cursor":{"refresh":"` + refresh + `"}}`))
+	if err != nil {
+		t.Fatalf("nested: %v", err)
+	}
+	if nested.Refresh != refresh {
+		t.Fatalf("nested refresh mismatch")
+	}
+
+	if _, err := ParseAuthPayload([]byte(`{}`)); !errors.Is(err, ErrInvalidImport) {
+		t.Fatalf("empty payload err=%v, want ErrInvalidImport", err)
+	}
+	if _, err := ParseAuthPayload([]byte(`{`)); !errors.Is(err, ErrInvalidImport) {
+		t.Fatalf("invalid json err=%v, want ErrInvalidImport", err)
+	}
+}
+
 func fakeJWT(t *testing.T, sub string, exp time.Time) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))

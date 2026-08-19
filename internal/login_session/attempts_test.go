@@ -171,6 +171,80 @@ func TestLoginAttemptsStopForgetsOpen(t *testing.T) {
 	}
 }
 
+func TestLoginAttemptsFailedPoll(t *testing.T) {
+	attempts := &LoginAttempts{
+		MaxOpen:        1,
+		AttemptTimeout: time.Minute,
+		Keep:           time.Minute,
+		Poll: func(ctx context.Context, uuid, verifier string) (cursor_account_sdk.Credentials, error) {
+			return cursor_account_sdk.Credentials{}, errors.New("poll exploded")
+		},
+	}
+	t.Cleanup(attempts.Stop)
+
+	created, err := attempts.Create()
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got := waitAttempt(t, attempts, created.ID, AttemptFailed)
+	if got.Error == "" {
+		t.Fatal("expected error on failed attempt")
+	}
+	if got.AccountID != "" {
+		t.Fatalf("failed attempt leaked account id %q", got.AccountID)
+	}
+}
+
+func TestLoginAttemptsSuccessWithoutStore(t *testing.T) {
+	access := fakeJWT(t, "user_nostore", time.Now().Add(time.Hour))
+	refresh := fakeJWT(t, "user_nostore", time.Now().Add(24*time.Hour))
+	attempts := &LoginAttempts{
+		MaxOpen:        1,
+		AttemptTimeout: time.Minute,
+		Keep:           time.Minute,
+		Poll: func(ctx context.Context, uuid, verifier string) (cursor_account_sdk.Credentials, error) {
+			return cursor_account_sdk.Credentials{
+				Access:    access,
+				Refresh:   refresh,
+				ExpiresAt: time.Now().Add(time.Hour).UnixMilli(),
+			}, nil
+		},
+	}
+	t.Cleanup(attempts.Stop)
+
+	created, err := attempts.Create()
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got := waitAttempt(t, attempts, created.ID, AttemptFailed)
+	if got.Error != "missing store" {
+		t.Fatalf("error=%q, want missing store", got.Error)
+	}
+	if got.AccountID != "" {
+		t.Fatalf("failed attempt leaked account id %q", got.AccountID)
+	}
+}
+
+func TestLoginAttemptsMissingGetAndDelete(t *testing.T) {
+	attempts := &LoginAttempts{
+		Poll: func(ctx context.Context, uuid, verifier string) (cursor_account_sdk.Credentials, error) {
+			<-ctx.Done()
+			return cursor_account_sdk.Credentials{}, ctx.Err()
+		},
+	}
+	t.Cleanup(attempts.Stop)
+
+	if _, err := attempts.Get("missing"); !errors.Is(err, ErrAttemptNotFound) {
+		t.Fatalf("Get missing err=%v, want ErrAttemptNotFound", err)
+	}
+	if err := attempts.Delete("missing"); !errors.Is(err, ErrAttemptNotFound) {
+		t.Fatalf("Delete missing err=%v, want ErrAttemptNotFound", err)
+	}
+	if _, err := attempts.Get(""); !errors.Is(err, ErrAttemptNotFound) {
+		t.Fatalf("Get empty err=%v, want ErrAttemptNotFound", err)
+	}
+}
+
 func waitAttempt(t *testing.T, a *LoginAttempts, id, state string) Attempt {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
