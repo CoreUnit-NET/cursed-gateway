@@ -657,7 +657,6 @@ async function runTest(page) {
       ms: error && error.ms,
     };
     paintResult(page);
-    if (!(error && error.aborted)) toast(errText(error), true);
   } finally {
     if (cache.abort === ac) {
       cache.abort = null;
@@ -835,6 +834,7 @@ export function renderAI(page, route, opts) {
 
 export async function listModels() {
   const btn = document.querySelector("[data-action=list-models]");
+  let failed = null;
   const run = async () => {
     cache.modelsLoading = true;
     cache.modelsError = null;
@@ -849,7 +849,7 @@ export async function listModels() {
       toast(cache.models.length + " models");
     } catch (error) {
       cache.modelsError = error;
-      toast(errText(error), true);
+      failed = error;
     } finally {
       cache.modelsLoading = false;
       paintModels();
@@ -858,6 +858,7 @@ export async function listModels() {
   };
   if (btn && !btn.disabled) await withBusy(btn, run);
   else await run();
+  if (failed) throw failed;
 }
 
 export function cancelAITest() {
@@ -881,8 +882,7 @@ export function copyAIJson(kind) {
         message: errText(cache.lastTest.error),
       });
   if (value == null) {
-    toast("nothing to copy", true);
-    return;
+    throw new Error("nothing to copy");
   }
   copyText(pretty(value));
 }

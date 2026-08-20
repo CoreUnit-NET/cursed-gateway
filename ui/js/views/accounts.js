@@ -94,8 +94,9 @@ function bindAccountForm(formId, readBody) {
         if (err) {
           err.hidden = false;
           err.textContent = errText(error);
+        } else {
+          throw error;
         }
-        toast(errText(error), true);
       }
     });
   };
@@ -195,7 +196,6 @@ function renderImportJSON(page, { patch }) {
         err.hidden = false;
         err.textContent = message;
       }
-      toast(message, true);
       return null;
     }
   });

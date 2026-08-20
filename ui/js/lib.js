@@ -105,8 +105,8 @@ export async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
     toast("copied");
-  } catch {
-    toast("copy failed", true);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("copy failed");
   }
 }
 
@@ -153,12 +153,34 @@ export function go(hash) {
 
 export async function withBusy(el, fn) {
   if (!el || el.disabled) return;
+  clearButtonError(el);
   el.disabled = true;
   try {
     await fn();
   } finally {
     el.disabled = false;
   }
+}
+
+export function clearButtonError(anchor) {
+  const root = anchor?.closest?.(".actions") || anchor?.parentElement;
+  if (!root) {
+    document.querySelectorAll(".btn-err").forEach((node) => node.remove());
+    return;
+  }
+  root.querySelectorAll(".btn-err").forEach((node) => node.remove());
+}
+
+export function buttonError(btn, message) {
+  if (!btn) return;
+  clearButtonError(btn);
+  const text = String(message || "").trim();
+  if (!text) return;
+  const el = document.createElement("p");
+  el.className = "err btn-err";
+  el.setAttribute("role", "alert");
+  el.textContent = text;
+  btn.insertAdjacentElement("afterend", el);
 }
 
 export function fillSlot(root, name, markup) {

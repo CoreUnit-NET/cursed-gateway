@@ -296,6 +296,12 @@ a.row:hover, a.row-main:hover { color: inherit; }
   align-items: center;
 }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions .btn-err {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+}
+.btn-err { margin: 6px 0 0; font-size: 12px; }
 
 .btn {
   background: rgba(22, 14, 64, 0.9);

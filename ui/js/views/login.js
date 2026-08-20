@@ -244,20 +244,16 @@ export function renderLogin(page, route, opts) {
 export async function startLogin() {
   const btn = $("start-login");
   await withBusy(btn, async () => {
-    try {
-      const res = await Control.startLogin();
-      const attempt = res.data || {};
-      toast("login attempt created");
-      await refreshAll();
-      if (attempt.url) {
-        const popup = window.open(attempt.url, "_blank", "noopener,noreferrer");
-        if (!popup)
-          toast("popup blocked — use Open URL on the next screen", true);
-      }
-      go(loginHref(attempt.id));
-    } catch (error) {
-      toast(errText(error), true);
+    const res = await Control.startLogin();
+    const attempt = res.data || {};
+    toast("login attempt created");
+    await refreshAll();
+    if (attempt.url) {
+      const popup = window.open(attempt.url, "_blank", "noopener,noreferrer");
+      if (!popup)
+        toast("popup blocked — use Open URL on the next screen", "warn");
     }
+    go(loginHref(attempt.id));
   });
 }
 

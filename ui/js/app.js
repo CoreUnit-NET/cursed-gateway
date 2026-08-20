@@ -1,4 +1,4 @@
-import { $, copyText, errText, toast } from "./lib.js";
+import { $, buttonError, clearButtonError, copyText, errText } from "./lib.js";
 import { parseHash, routeKey } from "./router.js";
 import { refreshAll, state, stopPoll, syncPoll } from "./state.js";
 import {
@@ -55,6 +55,9 @@ document.addEventListener("click", async (event) => {
   const delLogin = event.target.closest("[data-del-login]");
   const copy = event.target.closest("[data-copy]");
   const action = event.target.closest("[data-action]");
+  const target = start || delAccount || delLogin || copy || action;
+
+  if (target) clearButtonError(target);
 
   try {
     if (start) {
@@ -92,7 +95,7 @@ document.addEventListener("click", async (event) => {
     if (copy) {
       event.preventDefault();
       event.stopPropagation();
-      copyText(copy.dataset.copy);
+      await copyText(copy.dataset.copy);
       return;
     }
     if (
@@ -111,7 +114,7 @@ document.addEventListener("click", async (event) => {
       }
     }
   } catch (error) {
-    toast(errText(error), true);
+    if (target) buttonError(target, errText(error));
   }
 });
 
