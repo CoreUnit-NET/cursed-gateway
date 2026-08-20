@@ -27,6 +27,7 @@ import (
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
+	"github.com/CoreUnit-NET/cursed-gateway/ui"
 )
 
 // PrintModels fetches and prints available Cursor models.
@@ -97,6 +98,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 		LoginKeepMins:    s.LoginKeepMins,
 	}
 	control.Mount(mux)
+	mountUI(mux, ui.FS)
 
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	httpSrv := &http.Server{

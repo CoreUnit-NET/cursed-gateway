@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/CoreUnit-NET/cursed-gateway/ui"
 )
 
 func TestWrapMuxJSONNotFoundAndMethodNotAllowed(t *testing.T) {
@@ -103,6 +105,71 @@ func TestWrapMuxHealthzAccessLogIsDebug(t *testing.T) {
 	logged := logBuf.String()
 	if !strings.Contains(logged, "level=DEBUG") || !strings.Contains(logged, "path=/healthz") {
 		t.Fatalf("expected debug healthz access log, got %q", logged)
+	}
+}
+
+func TestMountUIServesIndexAndAssets(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}` + "\n"))
+	})
+	mountUI(mux, ui.FS)
+
+	srv := httptest.NewServer(wrapMux(mux, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	t.Cleanup(srv.Close)
+	client := srv.Client()
+
+	res, body := doHTTP(t, client, http.MethodGet, srv.URL+"/", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET / status=%d body=%s, want 200", res.StatusCode, body)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("GET / content-type=%q, want html", ct)
+	}
+	if !strings.Contains(string(body), "<!DOCTYPE html>") && !strings.Contains(string(body), "<html") {
+		snippet := string(body)
+		if len(snippet) > 120 {
+			snippet = snippet[:120]
+		}
+		t.Fatalf("GET / body missing html, got %q", snippet)
+	}
+
+	res, body = doHTTP(t, client, http.MethodGet, srv.URL+"/css/app.css", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /css/app.css status=%d body=%s, want 200", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "--bg:") {
+		snippet := string(body)
+		if len(snippet) > 80 {
+			snippet = snippet[:80]
+		}
+		t.Fatalf("GET /css/app.css unexpected body prefix %q", snippet)
+	}
+
+	res, body = doHTTP(t, client, http.MethodGet, srv.URL+"/js/app.js", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /js/app.js status=%d body=%s, want 200", res.StatusCode, body)
+	}
+
+	res, body = doHTTP(t, client, http.MethodGet, srv.URL+"/api", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api status=%d body=%s, want 200", res.StatusCode, body)
+	}
+	if string(body) != `{"ok":true}`+"\n" {
+		t.Fatalf("GET /api body=%q", body)
+	}
+
+	noFollow := *client
+	noFollow.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	res, body = doHTTP(t, &noFollow, http.MethodGet, srv.URL+"/index.html", nil)
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("GET /index.html status=%d body=%s, want 302", res.StatusCode, body)
+	}
+	if loc := res.Header.Get("Location"); loc != "/" {
+		t.Fatalf("GET /index.html Location=%q, want /", loc)
 	}
 }
 
