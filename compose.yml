@@ -4,7 +4,7 @@ services:
       dockerfile: "Dockerfile"
       target: "local"
     ports:
-      - "0.0.0.0:${PORT:-8080}:8080"
+      - "0.0.0.0:${PORT:-8080}:${PORT:-8080}"
     env_file: ".env"
     environment:
       GOCACHE: "/cache/go-build"
@@ -29,7 +29,7 @@ services:
       dockerfile: "Dockerfile"
       target: "deploy"
     ports:
-      - "0.0.0.0:${PORT:-8080}:8080"
+      - "0.0.0.0:${PORT:-8080}:${PORT:-8080}"
     env_file: ".env"
     volumes:
       - "./data:/app/data"
