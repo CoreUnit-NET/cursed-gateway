@@ -1,5 +1,5 @@
 # prepare env file and tmp dir
-$(shell mkdir -p tmp/out && touch .env && git init -q)
+$(shell mkdir -p tmp/out 2>/dev/null; touch .env; git init -q)
 
 # import custom makefiles
 -include Makefile.project
