@@ -305,6 +305,54 @@ Flags and environment variables:
 - `PROTO_AGENT_BIN` or `--agent-bin`: local cursor-agent path (versions dir, share root, or single file)
 - `--force`: ignore input fingerprint cache and regenerate
 
+### Reverse proxy examples
+
+Terminate TLS and optionally serve a static Control UI in front of the plain HTTP gateway.
+
+Caddy:
+
+```caddyfile
+cursed-gateway.example.com:443 {
+	# no auth, you need to somehow block unwanted request or run locally!
+
+	handle /ai* {
+		reverse_proxy http://cursed-gateway-host:8080
+	}
+
+	handle /api* {
+		reverse_proxy http://cursed-gateway-host:8080
+	}
+
+	handle {
+		root * /path/to/ui
+		file_server
+	}
+}
+```
+
+nginx equivalent:
+
+```nginx
+server {
+	listen 443 ssl;
+	server_name cursed-gateway.example.com;
+
+	# no auth, you need to somehow block unwanted request or run locally!
+
+	location /ai {
+		proxy_pass http://cursed-gateway-host:8080;
+	}
+
+	location /api {
+		proxy_pass http://cursed-gateway-host:8080;
+	}
+
+	location / {
+		root /path/to/ui;
+	}
+}
+```
+
 </details>
 
 <details><summary><strong>User Guide</strong></summary>
