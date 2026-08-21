@@ -88,7 +88,9 @@ type Store struct {
 	client *cursor_account_sdk.Client
 }
 
-// NewStore loads path if it exists, or starts empty.
+// NewStore loads path if it exists (or starts as empty {"sessions":[]}),
+// then always writes via the normal tmp+rename save so permission errors
+// like "write auth store tmp: ..." surface at startup, not on first mutation.
 func NewStore(path string, client *cursor_account_sdk.Client) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("auth store path is empty")
@@ -97,7 +99,10 @@ func NewStore(path string, client *cursor_account_sdk.Client) (*Store, error) {
 		client = &cursor_account_sdk.Client{}
 	}
 	s := &Store{path: path, client: client}
-	if err := s.load(); err != nil {
+	if _, err := s.load(); err != nil {
+		return nil, err
+	}
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -105,28 +110,29 @@ func NewStore(path string, client *cursor_account_sdk.Client) (*Store, error) {
 
 func (s *Store) Path() string { return s.path }
 
-func (s *Store) load() error {
+// load reads the auth store. created is true when the file was missing.
+func (s *Store) load() (created bool, err error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.file = StoreFile{Sessions: nil}
-			return nil
+			s.file = StoreFile{Sessions: []SessionRecord{}}
+			return true, nil
 		}
-		return fmt.Errorf("read auth store: %w", err)
+		return false, fmt.Errorf("read auth store: %w", err)
 	}
 	if len(data) == 0 {
-		s.file = StoreFile{Sessions: nil}
-		return nil
+		s.file = StoreFile{Sessions: []SessionRecord{}}
+		return false, nil
 	}
 	var parsed StoreFile
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return fmt.Errorf("parse auth store: %w", err)
+		return false, fmt.Errorf("parse auth store: %w", err)
 	}
 	if parsed.Sessions == nil {
 		parsed.Sessions = []SessionRecord{}
 	}
 	s.file = parsed
-	return nil
+	return false, nil
 }
 
 func (s *Store) saveLocked() error {

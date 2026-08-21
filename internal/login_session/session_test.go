@@ -16,6 +16,91 @@ import (
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 )
 
+func TestNewStoreCreatesEmptyFileWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "data.json")
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("stat before: %v", err)
+	}
+
+	store, err := NewStore(storePath, &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if len(store.List()) != 0 {
+		t.Fatalf("len(List)=%d, want 0", len(store.List()))
+	}
+
+	raw, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed StoreFile
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v\n%s", err, raw)
+	}
+	if parsed.Sessions == nil {
+		t.Fatal("sessions is null, want []")
+	}
+	if len(parsed.Sessions) != 0 {
+		t.Fatalf("len(sessions)=%d, want 0", len(parsed.Sessions))
+	}
+}
+
+func TestNewStoreReadsExistingThenRewrites(t *testing.T) {
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "data.json")
+	if err := os.WriteFile(storePath, []byte(`{"sessions":[{"id":"keep-me","access":"a","refresh":"r","expires":1}]}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	store, err := NewStore(storePath, &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if got := store.List(); len(got) != 1 || got[0].ID != "keep-me" {
+		t.Fatalf("List=%v, want keep-me", got)
+	}
+
+	raw, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var parsed StoreFile
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v\n%s", err, raw)
+	}
+	if len(parsed.Sessions) != 1 || parsed.Sessions[0].ID != "keep-me" {
+		t.Fatalf("persisted=%+v, want keep-me", parsed.Sessions)
+	}
+}
+
+func TestNewStoreFailsUnwritableDir(t *testing.T) {
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	existing := filepath.Join(locked, "existing.json")
+	if err := os.WriteFile(existing, []byte(`{"sessions":[]}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Chmod(locked, 0o555); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+
+	for _, name := range []string{"missing.json", "existing.json"} {
+		_, err := NewStore(filepath.Join(locked, name), &cursor_account_sdk.Client{})
+		if err == nil {
+			t.Fatalf("%s: NewStore succeeded, want write error", name)
+		}
+		if !strings.Contains(err.Error(), "write auth store tmp") {
+			t.Fatalf("%s: err=%v, want write auth store tmp", name, err)
+		}
+	}
+}
+
 func TestStoreImportUpsertAndRemove(t *testing.T) {
 	dir := t.TempDir()
 	storePath := filepath.Join(dir, "data.json")
