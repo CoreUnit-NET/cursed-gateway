@@ -1,39 +1,12 @@
-import { errText, html, mountView, navActive, setModes } from "./lib.js";
+import { errText, html, mountView, navActive, navKey } from "./lib.js";
 import { state } from "./state.js";
 import { renderAccounts } from "./views/accounts.js";
 import { renderAI } from "./views/ai.js";
 import { renderLogin } from "./views/login.js";
 import { renderOverview } from "./views/overview.js";
 
-function modesFor(route) {
-  if (route.tab === "accounts") {
-    const items = [
-      { id: "pool", href: "#/accounts", label: "Pool" },
-      { id: "add", href: "#/accounts/add", label: "Add tokens" },
-      { id: "import", href: "#/accounts/import", label: "Import JSON" },
-    ];
-    if (route.mode === "detail")
-      items.push({ id: "detail", href: location.hash, label: "Account" });
-    return items;
-  }
-  if (route.tab === "login") {
-    const items = [{ id: "attempts", href: "#/login", label: "Attempts" }];
-    if (route.mode === "detail")
-      items.push({ id: "detail", href: location.hash, label: "Attempt" });
-    return items;
-  }
-  if (route.tab === "ai") {
-    return [
-      { id: "models", href: "#/ai", label: "Models" },
-      { id: "test", href: "#/ai/test", label: "Test" },
-    ];
-  }
-  return [];
-}
-
 export function renderOffline(page, error) {
   navActive("overview");
-  setModes([]);
   mountView(
     page,
     "offline",
@@ -58,8 +31,7 @@ export async function render(
   route,
   { patch = false, stale = () => false } = {},
 ) {
-  navActive(route.tab);
-  setModes(modesFor(route), route.mode === "home" ? "" : route.mode);
+  navActive(navKey(route));
   if (!state.connected) {
     renderOffline(page, state.error || new Error("not connected"));
     return;

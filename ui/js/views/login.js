@@ -9,12 +9,13 @@ import {
   html,
   join,
   mountView,
+  raw,
   sameView,
   toast,
   when,
   withBusy,
 } from "../lib.js";
-import { accountHref, loginHref } from "../router.js";
+import { accountHref, loginAttemptsHref, loginHref } from "../router.js";
 import {
   findLogin,
   pendingCount,
@@ -25,23 +26,26 @@ import {
 import { empty } from "./helpers.js";
 
 function attemptActions(attempt) {
-  return html` ${when(
-      attempt.url,
-      () =>
-        html` <a
-            class="btn primary"
-            href="${attempt.url}"
-            target="_blank"
-            rel="noopener"
-            >Open</a
-          >
-          <button class="btn ghost" type="button" data-copy="${attempt.url}">
-            Copy
-          </button>`,
-    )}
-    <button class="btn danger" type="button" data-del-login="${attempt.id}">
-      Close
-    </button>`;
+  // Return raw so nesting inside another html`` does not escape the buttons.
+  return raw(
+    html` ${when(
+        attempt.url,
+        () =>
+          html` <a
+              class="btn primary"
+              href="${attempt.url}"
+              target="_blank"
+              rel="noopener"
+              >Open</a
+            >
+            <button class="btn ghost" type="button" data-copy="${attempt.url}">
+              Copy
+            </button>`,
+      )}
+      <button class="btn danger" type="button" data-del-login="${attempt.id}">
+        Close
+      </button>`,
+  );
 }
 
 function loginRow(attempt) {
@@ -60,7 +64,9 @@ function loginRow(attempt) {
 
 function loginListMarkup() {
   const list = sortedLogins();
-  if (!list.length) return empty("No login attempts yet.");
+  if (!list.length) {
+    return empty("No login attempts yet. Create one to get an Open/Copy URL.");
+  }
   return html`<div class="rows">${join(list, loginRow)}</div>`;
 }
 
@@ -146,6 +152,9 @@ async function renderLoginDetail(page, route, { patch, stale }) {
             <h2>Login attempt</h2>
             <p class="err">${errText(error)}</p>
           </div>
+          <a class="btn ghost" href="${loginAttemptsHref()}"
+            >Back to attempts</a
+          >
         </div>`,
       );
       return;
@@ -219,7 +228,7 @@ export async function createLoginAttempt() {
     toast("login attempt created");
     await refreshAll();
     // Stay on the attempts list; re-render so the new resource appears.
-    go("#/login");
+    go(loginAttemptsHref());
   });
 }
 
@@ -228,5 +237,5 @@ export async function closeLogin(id) {
   await Control.deleteLoginAttempt(id);
   toast("login attempt closed");
   await refreshAll();
-  go("#/login");
+  go(loginAttemptsHref());
 }

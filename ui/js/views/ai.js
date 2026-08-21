@@ -260,7 +260,7 @@ function modelRow(model) {
     <div class="row-main">
       <div class="id">${model.id}</div>
       <div class="meta">
-        ${when(isAuto(model), () => html`${badge("unknown", "Auto")}`)}
+        ${when(isAuto(model), () => badge("auto", "Auto"))}
         ${when(name && name !== model.id, () => html`<span>${name}</span>`)}
         ${when(model.owned_by, () => html`<span>${model.owned_by}</span>`)}
       </div>

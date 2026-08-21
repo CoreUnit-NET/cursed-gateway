@@ -134,10 +134,9 @@ a:hover { color: var(--purple-hot); }
   margin-inline: auto;
   padding: 0 24px 22px;
   display: grid;
-  gap: 12px;
   justify-items: center;
 }
-.tabs, .modes {
+.tabs {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -149,7 +148,7 @@ a:hover { color: var(--purple-hot); }
   border: 1px solid var(--line);
   justify-content: center;
 }
-.tabs a, .modes a, .btn {
+.tabs a, .btn {
   border: 0;
   cursor: pointer;
   border-radius: 10px;
@@ -169,8 +168,7 @@ a:hover { color: var(--purple-hot); }
   box-shadow: var(--glow-p);
   font-weight: 600;
 }
-.tabs a:not(.active):hover,
-.modes a:not(.active):hover {
+.tabs a:not(.active):hover {
   color: var(--text);
   background: rgba(168, 85, 247, 0.12);
 }
@@ -181,22 +179,6 @@ a:hover { color: var(--purple-hot); }
   background: rgba(0, 0, 0, 0.28);
 }
 .tabs a.active .count { background: rgba(18, 0, 42, 0.2); }
-
-.modes {
-  border-color: var(--line-blue);
-  background: rgba(4, 12, 36, 0.55);
-}
-.modes a {
-  text-decoration: none;
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.modes a.active {
-  color: var(--blue-hot);
-  background: rgba(56, 189, 248, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35), var(--glow-b);
-}
 
 .page {
   width: min(1080px, 100%);
@@ -361,6 +343,7 @@ a.btn.primary { color: #12002a; }
 .badge.succeeded, .badge.pro { color: var(--ok); border-color: rgba(74, 222, 128, 0.35); }
 .badge.failed, .badge.expired { color: var(--danger); border-color: rgba(251, 113, 133, 0.4); }
 .badge.unknown, .badge.free { color: var(--blue); border-color: var(--line-blue); }
+.badge.auto { color: var(--purple-hot); border-color: rgba(192, 132, 252, 0.45); }
 
 .empty { padding: 32px 16px; text-align: center; color: var(--muted); }
 .kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; }

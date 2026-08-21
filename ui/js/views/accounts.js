@@ -263,6 +263,7 @@ async function renderAccountDetail(page, route, { patch, stale }) {
             <h2>Account</h2>
             <p class="err">${errText(error)}</p>
           </div>
+          <a class="btn ghost" href="#/accounts">Back to pool</a>
         </div>`,
       );
       return;
@@ -283,25 +284,25 @@ async function renderAccountDetail(page, route, { patch, stale }) {
             <h2>Account</h2>
             <p>
               Public id is the JWT subject when present, otherwise the store
-              UUID.
+              UUID. Resource <code>/api/accounts/${acc.id}</code>.
             </p>
           </div>
-          <div class="actions">
-            <button class="btn ghost" type="button" data-copy="${acc.id}">
-              Copy id
-            </button>
-            <button
-              class="btn danger"
-              type="button"
-              data-del-account="${acc.id}"
-            >
-              Remove
-            </button>
-          </div>
+          <div class="actions" data-slot="actions"></div>
         </div>
         <div class="card"><div class="body" data-slot="kv"></div></div>`,
     );
   }
+  fillSlot(
+    page,
+    "actions",
+    html` <button class="btn ghost" type="button" data-copy="${acc.id}">
+        Copy id
+      </button>
+      <button class="btn danger" type="button" data-del-account="${acc.id}">
+        Remove
+      </button>
+      <a class="btn ghost" href="#/accounts">Back to pool</a>`,
+  );
   fillSlot(page, "kv", accountKv(acc));
 }
 

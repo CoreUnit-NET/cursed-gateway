@@ -1,5 +1,5 @@
 import { badge, fillSlot, html, join, mountView, sameView } from "../lib.js";
-import { accountHref, loginHref } from "../router.js";
+import { accountHref, loginAttemptsHref, loginHref } from "../router.js";
 import { sortedLogins, state } from "../state.js";
 import { empty } from "./helpers.js";
 
@@ -71,7 +71,7 @@ export function renderOverview(page, { patch }) {
               <code>cursor</code> objects.</span
             >
           </a>
-          <a class="mode-card" href="#/login">
+          <a class="mode-card" href="${loginAttemptsHref()}">
             <em>Login attempts</em>
             <strong>Attempt resources</strong>
             <span
@@ -135,6 +135,6 @@ export function renderOverview(page, { patch }) {
       ? html`<div class="rows">
           ${join(sortedLogins().slice(0, 4), compactLogin)}
         </div>`
-      : empty("None yet.", "#/login", "Login attempts"),
+      : empty("None yet.", loginAttemptsHref(), "Login attempts"),
   );
 }

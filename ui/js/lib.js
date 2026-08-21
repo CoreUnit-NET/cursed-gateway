@@ -123,23 +123,19 @@ export function navActive(tab) {
   });
 }
 
-export function setModes(items, active) {
-  const nav = $("modes");
-  if (!items?.length) {
-    nav.hidden = true;
-    nav.innerHTML = "";
-    return;
+/** Map a parsed route to the primary-nav data-nav key. */
+export function navKey(route) {
+  if (route.tab === "accounts") {
+    if (route.mode === "add") return "accounts-add";
+    if (route.mode === "import") return "accounts-import";
+    return "accounts";
   }
-  nav.hidden = false;
-  nav.innerHTML = items
-    .map(
-      (item) => html`
-        <a href="${item.href}" class="${item.id === active ? "active" : ""}"
-          >${item.label}</a
-        >
-      `,
-    )
-    .join("");
+  if (route.tab === "login") return "login";
+  if (route.tab === "ai") {
+    if (route.mode === "test") return "ai-test";
+    return "ai";
+  }
+  return "overview";
 }
 
 export function go(hash) {
@@ -183,9 +179,16 @@ export function buttonError(btn, message) {
   btn.insertAdjacentElement("afterend", el);
 }
 
+function markupHTML(markup) {
+  if (markup && Object.prototype.hasOwnProperty.call(markup, "__html")) {
+    return markup.__html;
+  }
+  return markup == null ? "" : String(markup);
+}
+
 export function fillSlot(root, name, markup) {
   const slot = root.querySelector(`[data-slot="${name}"]`);
-  if (slot) slot.innerHTML = markup;
+  if (slot) slot.innerHTML = markupHTML(markup);
 }
 
 export function sameView(page, signature) {
@@ -194,5 +197,5 @@ export function sameView(page, signature) {
 
 export function mountView(page, signature, markup) {
   page.dataset.view = signature;
-  page.innerHTML = markup;
+  page.innerHTML = markupHTML(markup);
 }

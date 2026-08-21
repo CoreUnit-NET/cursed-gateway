@@ -1,7 +1,9 @@
-import { html, when } from "../lib.js";
+import { html, raw, when } from "../lib.js";
 
 export function empty(text, href, action) {
-  return html`<div class="empty">
-    ${text}${when(href, () => html` <a href="${href}">${action}</a>`)}
-  </div>`;
+  return raw(
+    html`<div class="empty">
+      ${text}${when(href, () => html` <a href="${href}">${action}</a>`)}
+    </div>`,
+  );
 }

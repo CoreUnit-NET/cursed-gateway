@@ -19,8 +19,9 @@ export function parseHash() {
     if (parts[1]) return { tab: "accounts", mode: "detail", id: parts[1] };
     return { tab: "accounts", mode: "pool" };
   }
-  if (parts[0] === "login") {
-    // Old "#/login/start" hashes map to the attempts list.
+  // Canonical UI path matches the resource: /api/login-attempts.
+  // Keep "#/login" and "#/login/start" as aliases.
+  if (parts[0] === "login-attempts" || parts[0] === "login") {
     if (parts[1] === "start") return { tab: "login", mode: "attempts" };
     if (parts[1]) return { tab: "login", mode: "detail", id: parts[1] };
     return { tab: "login", mode: "attempts" };
@@ -49,7 +50,11 @@ export function accountHref(id) {
 }
 
 export function loginHref(id) {
-  return "#/login/" + encodeURIComponent(id);
+  return "#/login-attempts/" + encodeURIComponent(id);
+}
+
+export function loginAttemptsHref() {
+  return "#/login-attempts";
 }
 
 export function aiTestHref(model) {
