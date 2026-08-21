@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -86,6 +87,7 @@ type Store struct {
 	mu     sync.Mutex
 	file   StoreFile
 	client *cursor_account_sdk.Client
+	Log    *slog.Logger
 }
 
 // NewStore loads path if it exists (or starts as empty {"sessions":[]}),
@@ -109,6 +111,13 @@ func NewStore(path string, client *cursor_account_sdk.Client) (*Store, error) {
 }
 
 func (s *Store) Path() string { return s.path }
+
+func (s *Store) log() *slog.Logger {
+	if s != nil && s.Log != nil {
+		return s.Log
+	}
+	return slog.Default()
+}
 
 // load reads the auth store. created is true when the file was missing.
 func (s *Store) load() (created bool, err error) {
@@ -207,6 +216,10 @@ func (s *Store) UpsertBySubject(account *cursor_account_sdk.Account) (merged boo
 				account.ID = r.ID
 				if account.CreatedAt == 0 {
 					account.CreatedAt = r.CreatedAt
+				}
+				// Keep a known tier when the incoming account still has a placeholder.
+				if !cursor_account_sdk.TierKnown(account.Tier) && cursor_account_sdk.TierKnown(r.Tier) {
+					account.Tier = r.Tier
 				}
 				s.file.Sessions[i] = recordFromAccount(account)
 				return true, s.saveLocked()
@@ -307,6 +320,7 @@ func (s *Store) TestAndStore(ctx context.Context, creds cursor_account_sdk.Crede
 	if err != nil {
 		return nil, false, err
 	}
+	s.enrichTier(ctx, account)
 	merged, err := s.UpsertBySubject(account)
 	if err != nil {
 		return nil, false, err
@@ -350,16 +364,24 @@ func (s *Store) ensureAccess(ctx context.Context, id string, forceRefresh bool) 
 	}
 
 	now := time.Now()
-	if !forceRefresh && !acc.NeedsRefresh(now) {
-		return acc, nil
+	refreshed := false
+	if forceRefresh || acc.NeedsRefresh(now) {
+		creds, err := s.client.RefreshToken(ctx, acc.Refresh)
+		if err != nil {
+			return nil, err
+		}
+		acc.ApplyCredentials(creds, now)
+		refreshed = true
 	}
-	creds, err := s.client.RefreshToken(ctx, acc.Refresh)
-	if err != nil {
-		return nil, err
+
+	prevTier := acc.Tier
+	if refreshed || !cursor_account_sdk.TierKnown(acc.Tier) {
+		s.enrichTier(ctx, acc)
 	}
-	acc.ApplyCredentials(creds, now)
-	if err := s.Update(acc); err != nil {
-		return nil, err
+	if refreshed || acc.Tier != prevTier {
+		if err := s.Update(acc); err != nil {
+			return nil, err
+		}
 	}
 	return acc, nil
 }
@@ -374,6 +396,7 @@ func (s *Store) LoginInteractive(ctx context.Context) (*cursor_account_sdk.Accou
 	if err != nil {
 		return nil, err
 	}
+	s.enrichTier(ctx, account)
 	if _, err := s.UpsertBySubject(account); err != nil {
 		return nil, err
 	}
@@ -409,10 +432,36 @@ func (s *Store) ImportAuthFile(path string) (*cursor_account_sdk.Account, error)
 	if err != nil {
 		return nil, err
 	}
+	s.enrichTier(context.Background(), account)
 	if _, err := s.UpsertBySubject(account); err != nil {
 		return nil, err
 	}
 	return account, nil
+}
+
+// enrichTier best-effort fills Account.Tier from Cursor stripe profile.
+// Failures leave the existing tier unchanged.
+func (s *Store) enrichTier(ctx context.Context, account *cursor_account_sdk.Account) {
+	if s == nil || account == nil || account.Access == "" {
+		return
+	}
+	id := PublicAccountID(account)
+	tier, err := s.client.FetchTier(ctx, account.Access)
+	if err != nil {
+		s.log().Warn("tier enrich failed", "session", id, "err", err)
+		return
+	}
+	if !cursor_account_sdk.TierKnown(tier) {
+		s.log().Warn("tier enrich empty", "session", id)
+		return
+	}
+	if account.Tier == tier {
+		return
+	}
+	prev := account.Tier
+	account.Tier = tier
+	account.UpdatedAt = time.Now().UnixMilli()
+	s.log().Debug("tier enriched", "session", id, "from", prev, "tier", tier)
 }
 
 func parseImportCredentials(data []byte) (cursor_account_sdk.Credentials, error) {

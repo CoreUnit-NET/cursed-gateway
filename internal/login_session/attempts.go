@@ -231,6 +231,7 @@ func (a *LoginAttempts) runPoll(ctx context.Context, id string, params cursor_ac
 		if a.Store == nil {
 			storeErr = fmt.Errorf("missing store")
 		} else {
+			a.Store.enrichTier(ctx, account)
 			_, storeErr = a.Store.UpsertBySubject(account)
 		}
 	}

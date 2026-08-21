@@ -2,7 +2,10 @@ package login_session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -57,7 +60,19 @@ func TestLoginAttemptsCreateCapAndDelete(t *testing.T) {
 
 func TestLoginAttemptsSuccessStoresAccountID(t *testing.T) {
 	dir := t.TempDir()
-	store, err := NewStore(filepath.Join(dir, "data.json"), &cursor_account_sdk.Client{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stripe", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"membershipType": "pro_plus"})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	client := &cursor_account_sdk.Client{
+		HTTP: srv.Client(),
+		Endpoints: cursor_account_sdk.Endpoints{
+			StripeProfileURL: srv.URL + "/stripe",
+		},
+	}
+	store, err := NewStore(filepath.Join(dir, "data.json"), client)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -99,6 +114,9 @@ func TestLoginAttemptsSuccessStoresAccountID(t *testing.T) {
 	listed := store.List()
 	if len(listed) != 1 || PublicAccountID(listed[0]) != "user_login" {
 		t.Fatalf("store = %#v", listed)
+	}
+	if listed[0].Tier != "pro_plus" {
+		t.Fatalf("tier=%q, want pro_plus", listed[0].Tier)
 	}
 	select {
 	case <-done:

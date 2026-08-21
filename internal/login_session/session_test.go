@@ -113,7 +113,8 @@ func TestStoreImportUpsertAndRemove(t *testing.T) {
 		"refreshToken": refresh,
 	})
 
-	store, err := NewStore(storePath, &cursor_account_sdk.Client{})
+	_, client := testClient(t, withStripeOK("free"))
+	store, err := NewStore(storePath, client)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -123,6 +124,9 @@ func TestStoreImportUpsertAndRemove(t *testing.T) {
 	}
 	if acc.Subject != "user_a" {
 		t.Fatalf("subject = %q, want user_a", acc.Subject)
+	}
+	if acc.Tier != "free" {
+		t.Fatalf("tier=%q, want free", acc.Tier)
 	}
 	if len(store.List()) != 1 {
 		t.Fatalf("len(List)=%d, want 1", len(store.List()))
@@ -140,6 +144,9 @@ func TestStoreImportUpsertAndRemove(t *testing.T) {
 	}
 	if acc2.ID != acc.ID {
 		t.Fatalf("upsert changed id %q -> %q", acc.ID, acc2.ID)
+	}
+	if acc2.Tier != "free" {
+		t.Fatalf("upsert tier=%q, want free", acc2.Tier)
 	}
 	if len(store.List()) != 1 {
 		t.Fatalf("after upsert len=%d, want 1", len(store.List()))
@@ -223,25 +230,9 @@ func TestStoreFindRemoveMatchAndPublicID(t *testing.T) {
 func TestTestAndStoreRefreshThenUpsert(t *testing.T) {
 	access := fakeJWT(t, "user_test", time.Now().Add(time.Hour))
 	refresh := fakeJWT(t, "user_test", time.Now().Add(24*time.Hour))
-	refreshSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); !strings.HasPrefix(got, "Bearer ") {
-			http.Error(w, "missing bearer", http.StatusUnauthorized)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"accessToken":  access,
-			"refreshToken": refresh,
-		})
-	}))
-	t.Cleanup(refreshSrv.Close)
+	_, client := testClient(t, withRefreshTokens(access, refresh), withStripeOK("pro"))
 
 	dir := t.TempDir()
-	client := &cursor_account_sdk.Client{
-		HTTP: refreshSrv.Client(),
-		Endpoints: cursor_account_sdk.Endpoints{
-			RefreshURL: refreshSrv.URL,
-		},
-	}
 	store, err := NewStore(filepath.Join(dir, "data.json"), client)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
@@ -259,6 +250,9 @@ func TestTestAndStoreRefreshThenUpsert(t *testing.T) {
 	if PublicAccountID(first) != "user_test" {
 		t.Fatalf("id=%q", PublicAccountID(first))
 	}
+	if first.Tier != "pro" {
+		t.Fatalf("tier=%q, want pro", first.Tier)
+	}
 
 	second, merged, err := store.TestAndStore(context.Background(), cursor_account_sdk.Credentials{
 		Refresh: "refresh-token",
@@ -272,12 +266,150 @@ func TestTestAndStoreRefreshThenUpsert(t *testing.T) {
 	if second.ID != first.ID {
 		t.Fatalf("id changed %q -> %q", first.ID, second.ID)
 	}
+	if second.Tier != "pro" {
+		t.Fatalf("upsert tier=%q, want pro", second.Tier)
+	}
 	if len(store.List()) != 1 {
 		t.Fatalf("len=%d, want 1", len(store.List()))
 	}
 
 	if _, _, err := store.TestAndStore(context.Background(), cursor_account_sdk.Credentials{}); !errors.Is(err, ErrInvalidImport) {
 		t.Fatalf("empty refresh err=%v", err)
+	}
+}
+
+func TestEnsureAccessEnrichesUnknownTier(t *testing.T) {
+	access := fakeJWT(t, "user_tier", time.Now().Add(2*time.Hour))
+	stripeHits := 0
+	_, client := testClient(t,
+		withStripe(func(w http.ResponseWriter, r *http.Request) {
+			stripeHits++
+			_ = json.NewEncoder(w).Encode(map[string]string{"membershipType": "ultra"})
+		}),
+		withRefresh(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("refresh should not be called when token is fresh")
+		}),
+	)
+
+	dir := t.TempDir()
+	store, err := NewStore(filepath.Join(dir, "data.json"), client)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	acc := &cursor_account_sdk.Account{
+		ID:        "tier-id",
+		Subject:   "user_tier",
+		Tier:      "unknown",
+		Access:    access,
+		Refresh:   "refresh-token",
+		ExpiresAt: time.Now().Add(2 * time.Hour).UnixMilli(),
+	}
+	if err := store.Add(acc); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	got, err := store.EnsureAccess(context.Background(), "tier-id")
+	if err != nil {
+		t.Fatalf("EnsureAccess: %v", err)
+	}
+	if got.Tier != "ultra" {
+		t.Fatalf("tier=%q, want ultra", got.Tier)
+	}
+	if stripeHits != 1 {
+		t.Fatalf("stripeHits=%d, want 1", stripeHits)
+	}
+	persisted, err := store.Get("tier-id")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if persisted.Tier != "ultra" {
+		t.Fatalf("persisted tier=%q", persisted.Tier)
+	}
+
+	// Known tier + fresh token should not re-hit stripe.
+	if _, err := store.EnsureAccess(context.Background(), "tier-id"); err != nil {
+		t.Fatalf("second EnsureAccess: %v", err)
+	}
+	if stripeHits != 1 {
+		t.Fatalf("stripeHits after known tier=%d, want 1", stripeHits)
+	}
+}
+
+func TestEnsureAccessEnrichFailureKeepsTier(t *testing.T) {
+	access := fakeJWT(t, "user_keep_tier", time.Now().Add(time.Hour))
+	refresh := fakeJWT(t, "user_keep_tier", time.Now().Add(24*time.Hour))
+	_, client := testClient(t,
+		withRefreshTokens(access, refresh),
+		withStripeStatus(http.StatusUnauthorized),
+	)
+
+	dir := t.TempDir()
+	store, err := NewStore(filepath.Join(dir, "data.json"), client)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.Add(&cursor_account_sdk.Account{
+		ID:        "keep-tier",
+		Subject:   "user_keep_tier",
+		Tier:      "pro",
+		Access:    "stale-access",
+		Refresh:   "refresh-token",
+		ExpiresAt: time.Now().Add(-time.Minute).UnixMilli(),
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	got, err := store.EnsureAccess(context.Background(), "keep-tier")
+	if err != nil {
+		t.Fatalf("EnsureAccess: %v", err)
+	}
+	if got.Access != access {
+		t.Fatalf("access not refreshed")
+	}
+	if got.Tier != "pro" {
+		t.Fatalf("tier=%q, want preserved pro", got.Tier)
+	}
+}
+
+func TestUpsertBySubjectKeepsKnownTier(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(filepath.Join(dir, "data.json"), &cursor_account_sdk.Client{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.Add(&cursor_account_sdk.Account{
+		ID:      "keep-id",
+		Subject: "user_keep",
+		Tier:    "pro_plus",
+		Access:  "old-access",
+		Refresh: "old-refresh",
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	incoming := &cursor_account_sdk.Account{
+		ID:      "new-id",
+		Subject: "user_keep",
+		Tier:    "unknown",
+		Access:  "new-access",
+		Refresh: "new-refresh",
+	}
+	merged, err := store.UpsertBySubject(incoming)
+	if err != nil {
+		t.Fatalf("UpsertBySubject: %v", err)
+	}
+	if !merged {
+		t.Fatal("expected merge")
+	}
+	if incoming.Tier != "pro_plus" {
+		t.Fatalf("incoming tier=%q, want preserved pro_plus", incoming.Tier)
+	}
+	got, err := store.Get("keep-id")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Tier != "pro_plus" || got.Access != "new-access" {
+		t.Fatalf("persisted=%+v", got)
 	}
 }
 
@@ -345,4 +477,79 @@ func writeJSON(t *testing.T, path string, v any) {
 	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type testClientOpt func(mux *http.ServeMux, cfg *testClientCfg)
+
+type testClientCfg struct {
+	stripe  bool
+	refresh bool
+}
+
+func withRefresh(h http.HandlerFunc) testClientOpt {
+	return func(mux *http.ServeMux, cfg *testClientCfg) {
+		cfg.refresh = true
+		mux.HandleFunc("/refresh", h)
+	}
+}
+
+func withStripe(h http.HandlerFunc) testClientOpt {
+	return func(mux *http.ServeMux, cfg *testClientCfg) {
+		cfg.stripe = true
+		mux.HandleFunc("/stripe", h)
+	}
+}
+
+func withRefreshTokens(access, refresh string) testClientOpt {
+	return withRefresh(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); !strings.HasPrefix(got, "Bearer ") {
+			http.Error(w, "missing bearer", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"accessToken":  access,
+			"refreshToken": refresh,
+		})
+	})
+}
+
+func withStripeOK(membership string) testClientOpt {
+	return withStripe(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"membershipType": membership})
+	})
+}
+
+func withStripeStatus(code int) testClientOpt {
+	return withStripe(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "stripe failed", code)
+	})
+}
+
+func testClient(t *testing.T, opts ...testClientOpt) (*httptest.Server, *cursor_account_sdk.Client) {
+	t.Helper()
+	mux := http.NewServeMux()
+	cfg := &testClientCfg{}
+	for _, opt := range opts {
+		opt(mux, cfg)
+	}
+	if !cfg.stripe {
+		mux.HandleFunc("/stripe", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "stripe not configured", http.StatusServiceUnavailable)
+		})
+	}
+	if !cfg.refresh {
+		mux.HandleFunc("/refresh", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "refresh not configured", http.StatusServiceUnavailable)
+		})
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	client := &cursor_account_sdk.Client{
+		HTTP: srv.Client(),
+		Endpoints: cursor_account_sdk.Endpoints{
+			RefreshURL:       srv.URL + "/refresh",
+			StripeProfileURL: srv.URL + "/stripe",
+		},
+	}
+	return srv, client
 }
