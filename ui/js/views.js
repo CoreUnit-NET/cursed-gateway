@@ -17,10 +17,7 @@ function modesFor(route) {
     return items;
   }
   if (route.tab === "login") {
-    const items = [
-      { id: "attempts", href: "#/login", label: "Attempts" },
-      { id: "start", href: "#/login/start", label: "Start login" },
-    ];
+    const items = [{ id: "attempts", href: "#/login", label: "Attempts" }];
     if (route.mode === "detail")
       items.push({ id: "detail", href: location.hash, label: "Attempt" });
     return items;
@@ -42,10 +39,10 @@ export function renderOffline(page, error) {
     "offline",
     html` <div class="head">
       <div>
-        <h2>Waiting for /api</h2>
+        <h2>Waiting for /api/status</h2>
         <p class="err">
           ${errText(error, "not connected")}. Serve this page on the same origin
-          as cursed-gateway (or proxy <code>/api</code> here). There is no UI
+          as cursed-gateway (or proxy <code>/api/*</code> here). There is no UI
           auth and no remote origin field.
         </p>
       </div>
@@ -74,6 +71,6 @@ export async function render(
   renderOverview(page, { patch });
 }
 
-export { closeLogin, startLogin } from "./views/login.js";
+export { closeLogin, createLoginAttempt } from "./views/login.js";
 export { removeAccount } from "./views/accounts.js";
 export { cancelAITest, copyAIJson, listModels } from "./views/ai.js";

@@ -20,7 +20,8 @@ export function parseHash() {
     return { tab: "accounts", mode: "pool" };
   }
   if (parts[0] === "login") {
-    if (parts[1] === "start") return { tab: "login", mode: "start" };
+    // Old "#/login/start" hashes map to the attempts list.
+    if (parts[1] === "start") return { tab: "login", mode: "attempts" };
     if (parts[1]) return { tab: "login", mode: "detail", id: parts[1] };
     return { tab: "login", mode: "attempts" };
   }

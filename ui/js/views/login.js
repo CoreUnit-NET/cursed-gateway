@@ -24,6 +24,26 @@ import {
 } from "../state.js";
 import { empty } from "./helpers.js";
 
+function attemptActions(attempt) {
+  return html` ${when(
+      attempt.url,
+      () =>
+        html` <a
+            class="btn primary"
+            href="${attempt.url}"
+            target="_blank"
+            rel="noopener"
+            >Open</a
+          >
+          <button class="btn ghost" type="button" data-copy="${attempt.url}">
+            Copy
+          </button>`,
+    )}
+    <button class="btn danger" type="button" data-del-login="${attempt.id}">
+      Close
+    </button>`;
+}
+
 function loginRow(attempt) {
   return html` <div class="row ${attempt.state === "pending" ? "pending" : ""}">
     <a class="row-main" href="${loginHref(attempt.id)}">
@@ -34,63 +54,32 @@ function loginRow(attempt) {
         ${when(attempt.error, () => html`<span>${attempt.error}</span>`)}
       </div>
     </a>
-    <div class="actions">
-      ${when(attempt.url, () => html`<button class="btn ghost" type="button" data-copy="${attempt.url}">Copy URL</button>`)}
-      <button class="btn danger" type="button" data-del-login="${attempt.id}">
-        Close
-      </button>
-    </div>
+    <div class="actions">${attemptActions(attempt)}</div>
   </div>`;
 }
 
 function loginListMarkup() {
   const list = sortedLogins();
-  if (!list.length)
-    return empty("No login attempts.", "#/login/start", "Start login");
+  if (!list.length) return empty("No login attempts yet.");
   return html`<div class="rows">${join(list, loginRow)}</div>`;
 }
 
-function startLoginCopy() {
+function createAttemptButton() {
   const s = state.service;
   const pending = pendingCount();
   const cap = s.max_login_attempts || 3;
   const atCap = pending >= cap;
-  return html` <p>
-      Currently ${pending} pending of ${cap} allowed. Keep window
-      ${s.login_keep_mins ?? 5} minutes after resolve.
-    </p>
-    <div class="actions">
-      <button
-        class="btn primary"
-        id="start-login"
-        type="button"
-        ${when(atCap, "disabled")}
-      >
-        Create attempt and open URL
-      </button>
-      <a class="btn ghost" href="#/login">View attempts</a>
-    </div>
-    ${when(atCap, () => html`<p class="hint">At the open-attempt cap. Close a pending attempt first.</p>`)}`;
-}
-
-function renderStartLogin(page, { patch }) {
-  if (!patch || !sameView(page, "login/start")) {
-    mountView(
-      page,
-      "login/start",
-      html` <div class="head">
-          <div>
-            <h2>Start login</h2>
-            <p>
-              <code>POST /api/login</code> creates a PKCE attempt, not an
-              account. Finish it in the browser; success adds the account.
-            </p>
-          </div>
-        </div>
-        <div class="card"><div class="body" data-slot="copy"></div></div>`,
-    );
-  }
-  fillSlot(page, "copy", startLoginCopy());
+  return html` <div class="create-block">
+    <button
+      class="btn primary"
+      id="create-login-attempt"
+      type="button"
+      ${when(atCap, "disabled")}
+    >
+      Create login attempt
+    </button>
+    ${when(atCap, () => html`<p class="hint">At the open-attempt cap. Close a pending attempt first.</p>`)}
+  </div>`;
 }
 
 function loginBanner(attempt) {
@@ -116,7 +105,7 @@ function loginBanner(attempt) {
   }
   if (attempt.state === "expired") {
     return html`<div class="banner bad">
-      This attempt expired. Start a new login.
+      This attempt expired. Create a new login attempt.
     </div>`;
   }
   return "";
@@ -137,8 +126,8 @@ function loginKv(attempt) {
     </dl>
     ${when(attempt.url, () => html`<div class="url-box">${attempt.url}</div>`)}
     <p class="hint">
-      The attempt id is never reused as the account id. Succeeded attempts stay
-      listed for the keep window.
+      <code>GET /api/login-attempts/{id}</code>. Succeeded attempts stay listed
+      for the keep window.
     </p>`;
 }
 
@@ -146,7 +135,7 @@ async function renderLoginDetail(page, route, { patch, stale }) {
   const cached = findLogin(route.id);
   if (!patch || !cached) {
     try {
-      state.attempt = (await Control.login(route.id)).data;
+      state.attempt = (await Control.loginAttempt(route.id)).data;
     } catch (error) {
       if (stale()) return;
       mountView(
@@ -175,7 +164,10 @@ async function renderLoginDetail(page, route, { patch, stale }) {
       html` <div class="head">
           <div>
             <h2>Login attempt</h2>
-            <p>Completing this in the browser adds the account to the pool.</p>
+            <p>
+              Resource <code>/api/login-attempts/${attempt.id}</code>.
+              Completing the URL in the browser adds the account to the pool.
+            </p>
           </div>
           <div class="actions" data-slot="actions"></div>
         </div>
@@ -184,28 +176,7 @@ async function renderLoginDetail(page, route, { patch, stale }) {
     );
   }
   fillSlot(page, "banner", loginBanner(attempt));
-
-  fillSlot(
-    page,
-    "actions",
-    html` ${when(
-        attempt.url,
-        () =>
-          html` <a
-              class="btn primary"
-              href="${attempt.url}"
-              target="_blank"
-              rel="noopener"
-              >Open URL</a
-            >
-            <button class="btn ghost" type="button" data-copy="${attempt.url}">
-              Copy URL
-            </button>`,
-      )}
-      <button class="btn danger" type="button" data-del-login="${attempt.id}">
-        Close
-      </button>`,
-  );
+  fillSlot(page, "actions", attemptActions(attempt));
   fillSlot(page, "kv", loginKv(attempt));
 }
 
@@ -220,7 +191,7 @@ function renderLoginList(page, { patch }) {
             <h2>Login attempts</h2>
             <p data-slot="lede"></p>
           </div>
-          <a class="btn primary" href="#/login/start">Start login</a>
+          <div class="actions" data-slot="create"></div>
         </div>
         <div class="card"><div class="body" data-slot="list"></div></div>`,
     );
@@ -228,38 +199,33 @@ function renderLoginList(page, { patch }) {
   fillSlot(
     page,
     "lede",
-    html`Open attempts cap at ${s.max_login_attempts ?? 3}. Unanswered ones
-    close after ${s.login_attempt_mins ?? 3} minutes. ${pendingCount()} pending
-    now.`,
+    html`<code>GET/POST /api/login-attempts</code>. Cap
+      ${s.max_login_attempts ?? 3} open. Unanswered close after
+      ${s.login_attempt_mins ?? 3} minutes. ${pendingCount()} pending now.`,
   );
+  fillSlot(page, "create", createAttemptButton());
   fillSlot(page, "list", loginListMarkup());
 }
 
 export function renderLogin(page, route, opts) {
-  if (route.mode === "start") return renderStartLogin(page, opts);
   if (route.mode === "detail") return renderLoginDetail(page, route, opts);
   return renderLoginList(page, opts);
 }
 
-export async function startLogin() {
-  const btn = $("start-login");
+export async function createLoginAttempt() {
+  const btn = $("create-login-attempt");
   await withBusy(btn, async () => {
-    const res = await Control.startLogin();
-    const attempt = res.data || {};
+    await Control.createLoginAttempt();
     toast("login attempt created");
     await refreshAll();
-    if (attempt.url) {
-      const popup = window.open(attempt.url, "_blank", "noopener,noreferrer");
-      if (!popup)
-        toast("popup blocked — use Open URL on the next screen", "warn");
-    }
-    go(loginHref(attempt.id));
+    // Stay on the attempts list; re-render so the new resource appears.
+    go("#/login");
   });
 }
 
 export async function closeLogin(id) {
   if (!(await confirmDialog("Close login attempt " + id + "?"))) return;
-  await Control.deleteLogin(id);
+  await Control.deleteLoginAttempt(id);
   toast("login attempt closed");
   await refreshAll();
   go("#/login");

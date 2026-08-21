@@ -33,8 +33,8 @@ export function renderOverview(page, { patch }) {
           <div>
             <h2>Overview</h2>
             <p>
-              Control API home. Pick a section to manage the account pool, run a
-              Cursor PKCE login, or try same-origin /ai.
+              Control API home under <code>/api/*</code>. Manage the account
+              pool, login attempts, or try same-origin <code>/ai/*</code>.
             </p>
           </div>
         </div>
@@ -45,7 +45,7 @@ export function renderOverview(page, { patch }) {
             <div class="body" data-slot="recent-accounts"></div>
           </div>
           <div class="card">
-            <h3>Login activity</h3>
+            <h3>Login attempts</h3>
             <div class="body" data-slot="recent-logins"></div>
           </div>
         </div>
@@ -72,17 +72,12 @@ export function renderOverview(page, { patch }) {
             >
           </a>
           <a class="mode-card" href="#/login">
-            <em>Login · attempts</em>
-            <strong>Watch PKCE flow</strong>
+            <em>Login attempts</em>
+            <strong>Attempt resources</strong>
             <span
-              >Open, succeeded, failed, and expired attempts still in the keep
-              window.</span
+              >GET/POST /api/login-attempts. Create an attempt, then Open or
+              Copy its URL.</span
             >
-          </a>
-          <a class="mode-card" href="#/login/start">
-            <em>Login · start</em>
-            <strong>Start a login</strong>
-            <span>Create a pending attempt and open the Cursor URL.</span>
           </a>
           <a class="mode-card" href="#/ai">
             <em>AI · models</em>
@@ -113,7 +108,7 @@ export function renderOverview(page, { patch }) {
         <span>Login attempts</span><b>${s.login_attempts ?? "—"}</b>
       </div>
       <div class="stat">
-        <span>Max open logins</span><b>${s.max_login_attempts ?? "—"}</b>
+        <span>Max open attempts</span><b>${s.max_login_attempts ?? "—"}</b>
       </div>
       <div class="stat">
         <span>Attempt timeout</span><b>${s.login_attempt_mins ?? "—"}m</b>
@@ -136,10 +131,10 @@ export function renderOverview(page, { patch }) {
   fillSlot(
     page,
     "recent-logins",
-    state.login.length
+    state.loginAttempts.length
       ? html`<div class="rows">
           ${join(sortedLogins().slice(0, 4), compactLogin)}
         </div>`
-      : empty("None yet.", "#/login/start", "Start login"),
+      : empty("None yet.", "#/login", "Login attempts"),
   );
 }

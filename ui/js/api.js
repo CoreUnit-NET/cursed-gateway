@@ -227,15 +227,15 @@ async function streamSSE(path, body, extra = {}) {
 const idPath = (base, id) => base + "/" + encodeURIComponent(id);
 
 export const Control = {
-  service: () => api("GET", "/api"),
+  status: () => api("GET", "/api/status"),
   accounts: () => api("GET", "/api/accounts"),
   account: (id) => api("GET", idPath("/api/accounts", id)),
   addAccount: (body) => api("POST", "/api/accounts", body),
   deleteAccount: (id) => api("DELETE", idPath("/api/accounts", id)),
-  logins: () => api("GET", "/api/login"),
-  login: (id) => api("GET", idPath("/api/login", id)),
-  startLogin: () => api("POST", "/api/login"),
-  deleteLogin: (id) => api("DELETE", idPath("/api/login", id)),
+  loginAttempts: () => api("GET", "/api/login-attempts"),
+  loginAttempt: (id) => api("GET", idPath("/api/login-attempts", id)),
+  createLoginAttempt: () => api("POST", "/api/login-attempts"),
+  deleteLoginAttempt: (id) => api("DELETE", idPath("/api/login-attempts", id)),
 };
 
 export const AI = {

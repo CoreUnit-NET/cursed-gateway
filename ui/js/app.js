@@ -5,11 +5,11 @@ import {
   cancelAITest,
   closeLogin,
   copyAIJson,
+  createLoginAttempt,
   listModels,
   removeAccount,
   render,
   renderOffline,
-  startLogin,
 } from "./views.js";
 
 const page = $("page");
@@ -50,19 +50,19 @@ async function show({ patch = false, retry = false } = {}) {
 }
 
 document.addEventListener("click", async (event) => {
-  const start = event.target.closest("#start-login");
+  const createAttempt = event.target.closest("#create-login-attempt");
   const delAccount = event.target.closest("[data-del-account]");
   const delLogin = event.target.closest("[data-del-login]");
   const copy = event.target.closest("[data-copy]");
   const action = event.target.closest("[data-action]");
-  const target = start || delAccount || delLogin || copy || action;
+  const target = createAttempt || delAccount || delLogin || copy || action;
 
   if (target) clearButtonError(target);
 
   try {
-    if (start) {
+    if (createAttempt) {
       event.preventDefault();
-      await startLogin();
+      await createLoginAttempt();
       return;
     }
     if (action?.dataset.action === "list-models") {

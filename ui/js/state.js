@@ -5,7 +5,7 @@ import { parseHash, watchingLogins } from "./router.js";
 export const state = {
   service: {},
   accounts: [],
-  login: [],
+  loginAttempts: [],
   account: null,
   attempt: null,
   connected: false,
@@ -50,11 +50,11 @@ function notifyConnectivityIfChanged(nextConnected, err) {
   }
   if (sig === connectivitySig) return;
   connectivitySig = sig;
-  if (nextConnected) toast("back online · /api", "info");
+  if (nextConnected) toast("back online · /api/status", "info");
   else
     toast(
       err && err.network
-        ? "offline · cannot reach /api"
+        ? "offline · cannot reach /api/status"
         : errText(err, "offline"),
       err && err.network ? "warn" : "error",
     );
@@ -62,20 +62,20 @@ function notifyConnectivityIfChanged(nextConnected, err) {
 
 async function load() {
   const [svc, acc, log] = await Promise.all([
-    Control.service(),
+    Control.status(),
     Control.accounts(),
-    Control.logins(),
+    Control.loginAttempts(),
   ]);
-  const login = (log.data && log.data.login) || [];
-  noteLoginChanges(state.login, login);
+  const loginAttempts = (log.data && log.data.login_attempts) || [];
+  noteLoginChanges(state.loginAttempts, loginAttempts);
   state.service = svc.data || {};
   state.accounts = (acc.data && acc.data.accounts) || [];
-  state.login = login;
+  state.loginAttempts = loginAttempts;
   state.connected = true;
   state.error = null;
   $("nav-accounts").textContent = String(state.accounts.length);
-  $("nav-login").textContent = String(state.login.length);
-  setLive("ok", "live · /api");
+  $("nav-login").textContent = String(state.loginAttempts.length);
+  setLive("ok", "live · /api/status");
   notifyConnectivityIfChanged(true);
   state.ready = true;
 }
@@ -105,7 +105,7 @@ export function stopPoll() {
 export function syncPoll(onTick) {
   stopPoll();
   const route = parseHash();
-  const pending = state.login.some((item) => item.state === "pending");
+  const pending = state.loginAttempts.some((item) => item.state === "pending");
   if (!state.connected || !watchingLogins(route) || !pending) return;
   pollTimer = setTimeout(async () => {
     try {
@@ -118,12 +118,12 @@ export function syncPoll(onTick) {
 }
 
 export function pendingCount() {
-  return state.login.filter((item) => item.state === "pending").length;
+  return state.loginAttempts.filter((item) => item.state === "pending").length;
 }
 
 export function sortedLogins() {
   const order = { pending: 0, succeeded: 1, failed: 2, expired: 3 };
-  return state.login
+  return state.loginAttempts
     .slice()
     .sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9));
 }
@@ -133,5 +133,5 @@ export function findAccount(id) {
 }
 
 export function findLogin(id) {
-  return state.login.find((item) => item.id === id) || null;
+  return state.loginAttempts.find((item) => item.id === id) || null;
 }

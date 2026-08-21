@@ -75,7 +75,9 @@ a:hover { color: var(--purple-hot); }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 22px 8px;
+  width: min(1080px, 100%);
+  margin-inline: auto;
+  padding: 20px 24px 10px;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .mark {
@@ -127,7 +129,14 @@ a:hover { color: var(--purple-hot); }
 }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
-.navs { padding: 0 22px 18px; display: grid; gap: 10px; }
+.navs {
+  width: min(1080px, 100%);
+  margin-inline: auto;
+  padding: 0 24px 22px;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
 .tabs, .modes {
   display: flex;
   gap: 6px;
@@ -138,6 +147,7 @@ a:hover { color: var(--purple-hot); }
   border-radius: 14px;
   background: rgba(7, 4, 28, 0.72);
   border: 1px solid var(--line);
+  justify-content: center;
 }
 .tabs a, .modes a, .btn {
   border: 0;
@@ -189,16 +199,17 @@ a:hover { color: var(--purple-hot); }
 }
 
 .page {
-  padding: 0 22px 40px;
+  width: min(1080px, 100%);
+  margin-inline: auto;
+  padding: 8px 24px 48px;
   display: grid;
-  gap: 18px;
-  max-width: 1180px;
+  gap: 22px;
   align-content: start;
 }
 .head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   align-items: flex-end;
   flex-wrap: wrap;
 }
@@ -212,8 +223,19 @@ a:hover { color: var(--purple-hot); }
   color: transparent;
 }
 .head p { margin: 8px 0 0; color: var(--muted); max-width: 62ch; }
+.head .actions { align-items: flex-end; }
+.create-block {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+.create-block .hint {
+  margin: 0;
+  text-align: right;
+  max-width: 28ch;
+}
 
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
 .stat, .card, .mode-card, .row, dialog, .toast, .banner {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -229,8 +251,8 @@ a:hover { color: var(--purple-hot); }
 }
 .stat b { display: block; margin-top: 8px; font-size: 28px; color: var(--blue-hot); }
 
-.grid-2 { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; }
-.mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.grid-2 { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; }
+.mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .mode-card {
   display: grid;
   gap: 8px;
@@ -263,15 +285,15 @@ a:hover { color: var(--purple-hot); }
   text-transform: uppercase;
   color: var(--muted);
 }
-.card .body { padding: 14px; display: grid; gap: 12px; }
+.card .body { padding: 16px; display: grid; gap: 14px; }
 
-.rows { display: grid; gap: 8px; }
+.rows { display: grid; gap: 10px; }
 .row {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
   align-items: center;
-  padding: 12px 14px;
+  padding: 14px 16px;
   background: var(--panel-2);
   width: 100%;
   text-align: left;
@@ -295,11 +317,12 @@ a.row:hover, a.row-main:hover { color: inherit; }
   flex-wrap: wrap;
   align-items: center;
 }
-.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .actions .btn-err {
   flex-basis: 100%;
   margin: 0;
   font-size: 12px;
+  text-align: right;
 }
 .btn-err { margin: 6px 0 0; font-size: 12px; }
 
@@ -339,7 +362,7 @@ a.btn.primary { color: #12002a; }
 .badge.failed, .badge.expired { color: var(--danger); border-color: rgba(251, 113, 133, 0.4); }
 .badge.unknown, .badge.free { color: var(--blue); border-color: var(--line-blue); }
 
-.empty { padding: 28px 12px; text-align: center; color: var(--muted); }
+.empty { padding: 32px 16px; text-align: center; color: var(--muted); }
 .kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-family: var(--mono); font-size: 13px; word-break: break-all; }
@@ -459,6 +482,9 @@ dialog p { margin: 0; color: var(--muted); }
   .grid-2 { grid-template-columns: 1fr; }
   .head h2 { font-size: 26px; }
   .row { grid-template-columns: 1fr; }
+  .actions { justify-content: flex-start; }
+  .create-block { justify-items: start; }
+  .create-block .hint { text-align: left; }
   .field-row { grid-template-columns: 1fr; }
 }
 

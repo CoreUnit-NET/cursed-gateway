@@ -120,7 +120,7 @@ function errorHint(error) {
   if (error && error.aborted)
     return "The request was cancelled before it finished.";
   if (error && error.network)
-    return "Serve this page on the same origin as cursed-gateway, or proxy /ai here.";
+    return "Serve this page on the same origin as cursed-gateway, or proxy /ai/* here.";
   if (msg.includes("no sessions") || msg.includes("auth store"))
     return "Import or login an account first. /ai needs a session in the pool.";
   if (msg.includes("no user message"))
