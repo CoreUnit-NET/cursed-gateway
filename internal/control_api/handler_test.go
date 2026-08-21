@@ -49,9 +49,9 @@ func TestControlAPIAccountsAndService(t *testing.T) {
 	srv := httptest.NewServer(testMux(h))
 	t.Cleanup(srv.Close)
 
-	res, body := doJSON(t, srv, http.MethodGet, "/api", nil)
+	res, body := doJSON(t, srv, http.MethodGet, "/api/status", nil)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("GET /api/status status=%d body=%s", res.StatusCode, body)
 	}
 	var state serviceState
 	if err := json.Unmarshal(body, &state); err != nil {
@@ -151,9 +151,9 @@ func TestControlAPILoginAttempts(t *testing.T) {
 	srv := httptest.NewServer(testMux(h))
 	t.Cleanup(srv.Close)
 
-	res, body := doJSON(t, srv, http.MethodPost, "/api/login", nil)
+	res, body := doJSON(t, srv, http.MethodPost, "/api/login-attempts", nil)
 	if res.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/login status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("POST /api/login-attempts status=%d body=%s", res.StatusCode, body)
 	}
 	var created loginView
 	if err := json.Unmarshal(body, &created); err != nil {
@@ -163,7 +163,7 @@ func TestControlAPILoginAttempts(t *testing.T) {
 		t.Fatalf("created = %+v", created)
 	}
 
-	res, body = doJSON(t, srv, http.MethodPost, "/api/login", nil)
+	res, body = doJSON(t, srv, http.MethodPost, "/api/login-attempts", nil)
 	if res.StatusCode != http.StatusConflict {
 		t.Fatalf("second POST status=%d body=%s, want 409", res.StatusCode, body)
 	}
@@ -172,7 +172,7 @@ func TestControlAPILoginAttempts(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	var got loginView
 	for time.Now().Before(deadline) {
-		res, body = doJSON(t, srv, http.MethodGet, "/api/login/"+created.ID, nil)
+		res, body = doJSON(t, srv, http.MethodGet, "/api/login-attempts/"+created.ID, nil)
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("GET login status=%d body=%s", res.StatusCode, body)
 		}
@@ -194,23 +194,23 @@ func TestControlAPILoginAttempts(t *testing.T) {
 		t.Fatal("attempt id reused as account id")
 	}
 
-	res, body = doJSON(t, srv, http.MethodGet, "/api/login", nil)
+	res, body = doJSON(t, srv, http.MethodGet, "/api/login-attempts", nil)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/login status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("GET /api/login-attempts status=%d body=%s", res.StatusCode, body)
 	}
 	var list loginList
 	if err := json.Unmarshal(body, &list); err != nil {
 		t.Fatalf("list json: %v", err)
 	}
-	if len(list.Login) != 1 || list.Login[0].ID != created.ID {
+	if len(list.LoginAttempts) != 1 || list.LoginAttempts[0].ID != created.ID {
 		t.Fatalf("list = %+v", list)
 	}
 
-	res, _ = doJSON(t, srv, http.MethodDelete, "/api/login/"+created.ID, nil)
+	res, _ = doJSON(t, srv, http.MethodDelete, "/api/login-attempts/"+created.ID, nil)
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("DELETE login status=%d", res.StatusCode)
 	}
-	res, _ = doJSON(t, srv, http.MethodGet, "/api/login/"+created.ID, nil)
+	res, _ = doJSON(t, srv, http.MethodGet, "/api/login-attempts/"+created.ID, nil)
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET deleted login status=%d", res.StatusCode)
 	}
@@ -320,13 +320,13 @@ func TestControlAPIMissingAndBadBodies(t *testing.T) {
 	srv := httptest.NewServer(testMux(h))
 	t.Cleanup(srv.Close)
 
-	res, body := doJSON(t, srv, http.MethodGet, "/api/login/missing", nil)
+	res, body := doJSON(t, srv, http.MethodGet, "/api/login-attempts/missing", nil)
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET missing login status=%d body=%s", res.StatusCode, body)
 	}
 	assertErrorBody(t, body, "login attempt not found")
 
-	res, body = doJSON(t, srv, http.MethodDelete, "/api/login/missing", nil)
+	res, body = doJSON(t, srv, http.MethodDelete, "/api/login-attempts/missing", nil)
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("DELETE missing login status=%d body=%s", res.StatusCode, body)
 	}
@@ -362,9 +362,9 @@ func TestControlAPIMissingAndBadBodies(t *testing.T) {
 	}
 	assertCreateError(t, body, errBodyTooLarge.Error())
 
-	res, _ = doJSON(t, srv, http.MethodPost, "/api", nil)
+	res, _ = doJSON(t, srv, http.MethodPost, "/api/status", nil)
 	if res.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("POST /api status=%d, want 405", res.StatusCode)
+		t.Fatalf("POST /api/status status=%d, want 405", res.StatusCode)
 	}
 
 	res, _ = doJSON(t, srv, http.MethodPut, "/api/accounts", map[string]string{"refreshToken": "x"})
@@ -393,9 +393,9 @@ func TestControlAPILoginAttemptFailed(t *testing.T) {
 	srv := httptest.NewServer(testMux(h))
 	t.Cleanup(srv.Close)
 
-	res, body := doJSON(t, srv, http.MethodPost, "/api/login", nil)
+	res, body := doJSON(t, srv, http.MethodPost, "/api/login-attempts", nil)
 	if res.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/login status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("POST /api/login-attempts status=%d body=%s", res.StatusCode, body)
 	}
 	var created loginView
 	if err := json.Unmarshal(body, &created); err != nil {
@@ -405,7 +405,7 @@ func TestControlAPILoginAttemptFailed(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	var got loginView
 	for time.Now().Before(deadline) {
-		res, body = doJSON(t, srv, http.MethodGet, "/api/login/"+created.ID, nil)
+		res, body = doJSON(t, srv, http.MethodGet, "/api/login-attempts/"+created.ID, nil)
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("GET login status=%d body=%s", res.StatusCode, body)
 		}
@@ -424,9 +424,9 @@ func TestControlAPILoginAttemptFailed(t *testing.T) {
 		t.Fatal("expected error on failed attempt")
 	}
 
-	res, body = doJSON(t, srv, http.MethodGet, "/api", nil)
+	res, body = doJSON(t, srv, http.MethodGet, "/api/status", nil)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("GET /api/status status=%d body=%s", res.StatusCode, body)
 	}
 	var state serviceState
 	if err := json.Unmarshal(body, &state); err != nil {
@@ -442,9 +442,9 @@ func TestControlAPIUnconfigured(t *testing.T) {
 	srv := httptest.NewServer(testMux(h))
 	t.Cleanup(srv.Close)
 
-	res, body := doJSON(t, srv, http.MethodGet, "/api", nil)
+	res, body := doJSON(t, srv, http.MethodGet, "/api/status", nil)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("GET /api/status status=%d body=%s", res.StatusCode, body)
 	}
 	var state serviceState
 	if err := json.Unmarshal(body, &state); err != nil {
@@ -461,10 +461,10 @@ func TestControlAPIUnconfigured(t *testing.T) {
 		{http.MethodPost, "/api/accounts", "account store is not configured"},
 		{http.MethodGet, "/api/accounts/x", "account store is not configured"},
 		{http.MethodDelete, "/api/accounts/x", "account store is not configured"},
-		{http.MethodGet, "/api/login", "login attempts are not configured"},
-		{http.MethodPost, "/api/login", "login attempts are not configured"},
-		{http.MethodGet, "/api/login/x", "login attempts are not configured"},
-		{http.MethodDelete, "/api/login/x", "login attempts are not configured"},
+		{http.MethodGet, "/api/login-attempts", "login attempts are not configured"},
+		{http.MethodPost, "/api/login-attempts", "login attempts are not configured"},
+		{http.MethodGet, "/api/login-attempts/x", "login attempts are not configured"},
+		{http.MethodDelete, "/api/login-attempts/x", "login attempts are not configured"},
 	} {
 		res, body := doJSON(t, srv, tc.method, tc.path, nil)
 		if res.StatusCode != http.StatusInternalServerError {

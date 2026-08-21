@@ -37,7 +37,7 @@ type loginView struct {
 }
 
 type loginList struct {
-	Login []loginView `json:"login"`
+	LoginAttempts []loginView `json:"login_attempts"`
 }
 
 type serviceState struct {

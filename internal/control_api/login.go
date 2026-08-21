@@ -23,9 +23,9 @@ func (h *Handler) handleListLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	list := h.Attempts.List()
-	out := loginList{Login: make([]loginView, 0, len(list))}
+	out := loginList{LoginAttempts: make([]loginView, 0, len(list))}
 	for _, a := range list {
-		out.Login = append(out.Login, loginViewFrom(a))
+		out.LoginAttempts = append(out.LoginAttempts, loginViewFrom(a))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

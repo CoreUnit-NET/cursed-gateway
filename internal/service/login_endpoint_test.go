@@ -117,14 +117,14 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 		t.Fatalf("POST /ai/v1/completions status=%d body=%s, want 400", res.StatusCode, body)
 	}
 
-	res, err = client.Get(base + "/api")
+	res, err = client.Get(base + "/api/status")
 	if err != nil {
-		t.Fatalf("GET /api: %v", err)
+		t.Fatalf("GET /api/status: %v", err)
 	}
 	body, _ = io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("GET /api/status status=%d body=%s", res.StatusCode, body)
 	}
 	var state struct {
 		Accounts         int `json:"accounts"`
@@ -134,7 +134,7 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 		LoginKeepMins    int `json:"login_keep_mins"`
 	}
 	if err := json.Unmarshal(body, &state); err != nil {
-		t.Fatalf("GET /api json: %v", err)
+		t.Fatalf("GET /api/status json: %v", err)
 	}
 	if state.Accounts != 0 || state.LoginAttempts != 0 {
 		t.Fatalf("unexpected counts: %+v", state)
@@ -162,23 +162,23 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 		t.Fatalf("accounts=%s, want empty", body)
 	}
 
-	res, err = client.Get(base + "/api/login")
+	res, err = client.Get(base + "/api/login-attempts")
 	if err != nil {
-		t.Fatalf("GET /api/login: %v", err)
+		t.Fatalf("GET /api/login-attempts: %v", err)
 	}
 	body, _ = io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/login status=%d body=%s", res.StatusCode, body)
+		t.Fatalf("GET /api/login-attempts status=%d body=%s", res.StatusCode, body)
 	}
 	var login struct {
-		Login []json.RawMessage `json:"login"`
+		LoginAttempts []json.RawMessage `json:"login_attempts"`
 	}
 	if err := json.Unmarshal(body, &login); err != nil {
-		t.Fatalf("GET /api/login json: %v", err)
+		t.Fatalf("GET /api/login-attempts json: %v", err)
 	}
-	if len(login.Login) != 0 {
-		t.Fatalf("login=%s, want empty", body)
+	if len(login.LoginAttempts) != 0 {
+		t.Fatalf("login_attempts=%s, want empty", body)
 	}
 
 	res, err = client.Get(base + "/api/accounts/missing")
@@ -279,21 +279,21 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 		t.Fatalf("POST system-only body=%s, want No user message found", body)
 	}
 
-	postAPI, err := http.NewRequest(http.MethodPost, base+"/api", nil)
+	postAPI, err := http.NewRequest(http.MethodPost, base+"/api/status", nil)
 	if err != nil {
-		t.Fatalf("POST /api: %v", err)
+		t.Fatalf("POST /api/status: %v", err)
 	}
 	res, err = client.Do(postAPI)
 	if err != nil {
-		t.Fatalf("POST /api: %v", err)
+		t.Fatalf("POST /api/status: %v", err)
 	}
 	body, _ = io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("POST /api status=%d body=%s, want 405", res.StatusCode, body)
+		t.Fatalf("POST /api/status status=%d body=%s, want 405", res.StatusCode, body)
 	}
 	if !strings.Contains(string(body), `"error":"method not allowed"`) {
-		t.Fatalf("POST /api body=%s, want JSON method not allowed", body)
+		t.Fatalf("POST /api/status body=%s, want JSON method not allowed", body)
 	}
 
 	putAccounts, err := http.NewRequest(http.MethodPut, base+"/api/accounts", strings.NewReader(`{"refreshToken":"x"}`))
@@ -372,17 +372,17 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 		t.Fatalf("POST empty accounts body=%s, want request body is empty", body)
 	}
 
-	res, err = client.Get(base + "/api/login/missing")
+	res, err = client.Get(base + "/api/login-attempts/missing")
 	if err != nil {
-		t.Fatalf("GET /api/login/missing: %v", err)
+		t.Fatalf("GET /api/login-attempts/missing: %v", err)
 	}
 	body, _ = io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusNotFound {
-		t.Fatalf("GET /api/login/missing status=%d body=%s, want 404", res.StatusCode, body)
+		t.Fatalf("GET /api/login-attempts/missing status=%d body=%s, want 404", res.StatusCode, body)
 	}
 	if !strings.Contains(string(body), "login attempt not found") {
-		t.Fatalf("GET /api/login/missing body=%s, want login attempt not found", body)
+		t.Fatalf("GET /api/login-attempts/missing body=%s, want login attempt not found", body)
 	}
 
 	cancel()

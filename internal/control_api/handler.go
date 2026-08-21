@@ -1,9 +1,9 @@
 package control_api
 
 /*
-Package control_api serves the Control API under /api.
+Package control_api serves the Control API under /api/*.
 
-REST resources: service state, accounts, and login attempts.
+REST resources: status, accounts, and login attempts.
 AI routes live under /ai (completion_api). There is no whoami.
 */
 
@@ -29,17 +29,17 @@ type Handler struct {
 	LoginKeepMins    int
 }
 
-// Mount registers /api routes on mux.
+// Mount registers /api/* routes on mux.
 func (h *Handler) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api", h.handleService)
+	mux.HandleFunc("GET /api/status", h.handleService)
 	mux.HandleFunc("GET /api/accounts", h.handleListAccounts)
 	mux.HandleFunc("POST /api/accounts", h.handleCreateAccount)
 	mux.HandleFunc("GET /api/accounts/{id}", h.handleGetAccount)
 	mux.HandleFunc("DELETE /api/accounts/{id}", h.handleDeleteAccount)
-	mux.HandleFunc("GET /api/login", h.handleListLogin)
-	mux.HandleFunc("POST /api/login", h.handleCreateLogin)
-	mux.HandleFunc("GET /api/login/{id}", h.handleGetLogin)
-	mux.HandleFunc("DELETE /api/login/{id}", h.handleDeleteLogin)
+	mux.HandleFunc("GET /api/login-attempts", h.handleListLogin)
+	mux.HandleFunc("POST /api/login-attempts", h.handleCreateLogin)
+	mux.HandleFunc("GET /api/login-attempts/{id}", h.handleGetLogin)
+	mux.HandleFunc("DELETE /api/login-attempts/{id}", h.handleDeleteLogin)
 }
 
 func (h *Handler) log() *slog.Logger {

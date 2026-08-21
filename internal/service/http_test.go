@@ -15,7 +15,7 @@ import (
 
 func TestWrapMuxJSONNotFoundAndMethodNotAllowed(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}` + "\n"))
 	})
@@ -51,13 +51,13 @@ func TestWrapMuxJSONNotFoundAndMethodNotAllowed(t *testing.T) {
 	}
 	assertOpenAIError(t, res, body, "not found", "not_found")
 
-	res, body = doHTTP(t, client, http.MethodPost, srv.URL+"/api", nil)
+	res, body = doHTTP(t, client, http.MethodPost, srv.URL+"/api/status", nil)
 	if res.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("POST /api status=%d body=%s, want 405", res.StatusCode, body)
+		t.Fatalf("POST /api/status status=%d body=%s, want 405", res.StatusCode, body)
 	}
 	assertControlError(t, res, body, "method not allowed")
 	if got := res.Header.Get("Allow"); !strings.Contains(got, http.MethodGet) {
-		t.Fatalf("POST /api Allow=%q, want GET", got)
+		t.Fatalf("POST /api/status Allow=%q, want GET", got)
 	}
 
 	res, body = doHTTP(t, client, http.MethodGet, srv.URL+"/ai/v1/chat/completions", nil)
@@ -110,7 +110,7 @@ func TestWrapMuxHealthzAccessLogIsDebug(t *testing.T) {
 
 func TestMountUIServesIndexAndAssets(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}` + "\n"))
 	})
@@ -152,12 +152,12 @@ func TestMountUIServesIndexAndAssets(t *testing.T) {
 		t.Fatalf("GET /js/app.js status=%d body=%s, want 200", res.StatusCode, body)
 	}
 
-	res, body = doHTTP(t, client, http.MethodGet, srv.URL+"/api", nil)
+	res, body = doHTTP(t, client, http.MethodGet, srv.URL+"/api/status", nil)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api status=%d body=%s, want 200", res.StatusCode, body)
+		t.Fatalf("GET /api/status status=%d body=%s, want 200", res.StatusCode, body)
 	}
 	if string(body) != `{"ok":true}`+"\n" {
-		t.Fatalf("GET /api body=%q", body)
+		t.Fatalf("GET /api/status body=%q", body)
 	}
 
 	noFollow := *client
