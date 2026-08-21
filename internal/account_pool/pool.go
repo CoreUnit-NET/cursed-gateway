@@ -10,7 +10,6 @@ cool down accounts that hit rate limits.
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -136,9 +135,8 @@ func filterTier(in []*cursor_account_sdk.Account, wantPro bool) []*cursor_accoun
 }
 
 func isPro(tier string) bool {
-	t := strings.ToLower(strings.TrimSpace(tier))
-	switch t {
-	case "pro", "pro_plus", "pro+", "business", "enterprise", "ultra":
+	switch cursor_account_sdk.NormalizeTier(tier) {
+	case "pro", "pro_plus", "business", "enterprise", "ultra":
 		return true
 	default:
 		return false

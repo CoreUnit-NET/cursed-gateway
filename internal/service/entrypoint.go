@@ -40,6 +40,7 @@ func PrintModels(ctx context.Context, s *settings.Settings, out io.Writer, clien
 		return err
 	}
 	log := slog.Default()
+	store.Log = log
 	pool := account_pool.New(store, s.PreferPro, s.CooldownMins, maxRetries(s), log)
 	api := &cursor_api_sdk.Client{}
 	srv := completion_api.NewServer(pool, api, log)
@@ -68,6 +69,7 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 	if err != nil {
 		return err
 	}
+	store.Log = log
 
 	refreshCtx, refreshCancel := context.WithCancel(ctx)
 	defer refreshCancel()

@@ -54,7 +54,12 @@ func (r *Runtime) client() *cursor_account_sdk.Client {
 }
 
 func (r *Runtime) openStore(path string) (*login_session.Store, error) {
-	return login_session.NewStore(path, r.client())
+	store, err := login_session.NewStore(path, r.client())
+	if err != nil {
+		return nil, err
+	}
+	store.Log = slog.Default()
+	return store, nil
 }
 
 // Dispatch runs the selected settings.Command.
