@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	DefaultLoginURL   = "https://cursor.com/loginDeepControl"
-	DefaultPollURL    = "https://api2.cursor.sh/auth/poll"
-	DefaultRefreshURL = "https://api2.cursor.sh/auth/exchange_user_api_key"
+	DefaultLoginURL         = "https://cursor.com/loginDeepControl"
+	DefaultPollURL          = "https://api2.cursor.sh/auth/poll"
+	DefaultRefreshURL       = "https://api2.cursor.sh/auth/exchange_user_api_key"
+	DefaultStripeProfileURL = "https://api2.cursor.sh/auth/full_stripe_profile"
 
 	DefaultPollMaxAttempts = 150
 	DefaultPollBaseDelay   = time.Second
@@ -36,6 +37,8 @@ const (
 
 	// AccessExpiryMargin is subtracted from JWT exp when computing ExpiresAt.
 	AccessExpiryMargin = 5 * time.Minute
+
+	TierUnknown = "unknown"
 )
 
 var (
@@ -124,9 +127,10 @@ func (a *Account) ApplyCredentials(creds Credentials, now time.Time) {
 
 // Endpoints holds overridable Cursor auth URLs (tests / custom upstream).
 type Endpoints struct {
-	LoginURL   string
-	PollURL    string
-	RefreshURL string
+	LoginURL         string
+	PollURL          string
+	RefreshURL       string
+	StripeProfileURL string
 }
 
 func (e Endpoints) withDefaults() Endpoints {
@@ -138,6 +142,9 @@ func (e Endpoints) withDefaults() Endpoints {
 	}
 	if e.RefreshURL == "" {
 		e.RefreshURL = DefaultRefreshURL
+	}
+	if e.StripeProfileURL == "" {
+		e.StripeProfileURL = DefaultStripeProfileURL
 	}
 	return e
 }
@@ -283,6 +290,69 @@ func (c *Client) PollAuth(ctx context.Context, uuid, verifier string) (Credentia
 type refreshResponse struct {
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
+}
+
+type stripeProfileResponse struct {
+	MembershipType    string `json:"membershipType"`
+	MembershipTypeAlt string `json:"membership_type"`
+}
+
+// NormalizeTier lowercases and canonicalizes Cursor membership strings.
+// Empty input becomes TierUnknown.
+func NormalizeTier(tier string) string {
+	t := strings.ToLower(strings.TrimSpace(tier))
+	switch t {
+	case "":
+		return TierUnknown
+	case "pro+", "proplus":
+		return "pro_plus"
+	default:
+		return t
+	}
+}
+
+// TierKnown reports whether tier is a non-empty, non-placeholder membership.
+func TierKnown(tier string) bool {
+	t := NormalizeTier(tier)
+	return t != "" && t != TierUnknown
+}
+
+// FetchTier loads membershipType from Cursor's full stripe profile.
+func (c *Client) FetchTier(ctx context.Context, accessToken string) (string, error) {
+	if accessToken == "" {
+		return "", ErrMissingAccessToken
+	}
+	ep := c.endpoints()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ep.StripeProfileURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", fmt.Errorf("stripe profile failed: HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var data stripeProfileResponse
+	if err := json.Unmarshal(body, &data); err != nil {
+		return "", fmt.Errorf("stripe profile decode: %w", err)
+	}
+	tier := data.MembershipType
+	if tier == "" {
+		tier = data.MembershipTypeAlt
+	}
+	tier = NormalizeTier(tier)
+	if !TierKnown(tier) {
+		return TierUnknown, fmt.Errorf("stripe profile missing membershipType")
+	}
+	return tier, nil
 }
 
 // RefreshToken exchanges a refresh JWT for a new access (and optionally refresh) token.
@@ -459,7 +529,7 @@ func NewAccountFromCredentials(creds Credentials, now time.Time) (*Account, erro
 		LastRefreshAt: ms,
 		CreatedAt:     ms,
 		UpdatedAt:     ms,
-		Tier:          "unknown",
+		Tier:          TierUnknown,
 	}
 	if sub, ok := JWTSubject(creds.Access); ok {
 		a.Subject = sub
