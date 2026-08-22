@@ -77,6 +77,7 @@ func TestMountAIPrefixes(t *testing.T) {
 		if !strings.Contains(string(body), "messages is required") {
 			t.Fatalf("POST %s body=%s, want messages is required", path, body)
 		}
+		assertOpenAIErrorParamNull(t, body)
 	}
 
 	for _, path := range []string{"/ai/v1/completions", "/v1/completions", "/completions"} {
@@ -87,6 +88,25 @@ func TestMountAIPrefixes(t *testing.T) {
 		if !strings.Contains(string(body), "prompt is required") {
 			t.Fatalf("POST %s body=%s, want prompt is required", path, body)
 		}
+		assertOpenAIErrorParamNull(t, body)
+	}
+}
+
+func assertOpenAIErrorParamNull(t *testing.T, body []byte) {
+	t.Helper()
+	var wrap struct {
+		Error struct {
+			Param any `json:"param"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &wrap); err != nil {
+		t.Fatalf("error json: %v body=%s", err, body)
+	}
+	if wrap.Error.Param != nil {
+		t.Fatalf("error.param=%#v, want null body=%s", wrap.Error.Param, body)
+	}
+	if !bytes.Contains(body, []byte(`"param":null`)) {
+		t.Fatalf("error body missing \"param\":null: %s", body)
 	}
 }
 
