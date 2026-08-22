@@ -188,6 +188,7 @@ test: ##@ runs all GO tests recursively without coverage
 .PHONY: cover
 cover: ##@ generates a raw and html test coverage report
 	@echo "Run go tests recursively..."
+	@mkdir -p tmp
 	go test -coverprofile tmp/cover.out ./...
 	go tool cover -html=tmp/cover.out -o tmp/cover.html
 	@echo "cover.out and cover.html generated in tmp!"

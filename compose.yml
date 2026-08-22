@@ -19,9 +19,9 @@ services:
     command:
       - |
         set -euo pipefail
-        mkdir -p /app/data /cache/go-build /cache/pkg/mod
-        chown -R 1000:1000 /app/data /cache
-        chmod -R 777 /app/data /cache
+        mkdir -p /app/data /app/tmp /cache/go-build /cache/pkg/mod
+        chown -R 1000:1000 /app/data /app/tmp /cache
+        chmod -R 777 /app/data /app/tmp /cache
         exec setpriv --reuid=1000 --regid=1000 --clear-groups -- $$INIT_CMD
 
   deploy:
