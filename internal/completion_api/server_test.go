@@ -57,6 +57,97 @@ func (a *recAPI) StartRun(ctx context.Context, accessToken string, payload *curs
 	return nil, fmt.Errorf("unused")
 }
 
+func TestOpenAIErrorTypeCodeRequestTooLarge(t *testing.T) {
+	typ, code := openAIErrorTypeCode(http.StatusRequestEntityTooLarge)
+	if typ != "invalid_request_error" || code != "request_too_large" {
+		t.Fatalf("type=%q code=%q", typ, code)
+	}
+}
+
+func TestWriteJSONDoesNotEscapeHTML(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeJSON(rec, http.StatusOK, map[string]string{"message": `a <b> & c`})
+	body := rec.Body.String()
+	if strings.Contains(body, `\u003c`) || strings.Contains(body, `&lt;`) {
+		t.Fatalf("HTML escaped: %s", body)
+	}
+	if !strings.Contains(body, `a <b> & c`) {
+		t.Fatalf("missing raw angle brackets: %s", body)
+	}
+}
+
+func TestMarshalJSONNoEscape(t *testing.T) {
+	raw, err := marshalJSONNoEscape(map[string]string{"text": `<script>`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `\u003c`) {
+		t.Fatalf("escaped: %s", raw)
+	}
+	if !bytes.Contains(raw, []byte(`<script>`)) {
+		t.Fatalf("missing script tag: %s", raw)
+	}
+	if bytes.HasSuffix(raw, []byte("\n")) {
+		t.Fatalf("marshalJSONNoEscape must trim encoder newline: %q", raw)
+	}
+}
+
+func TestChatCompletionsBodyTooLarge(t *testing.T) {
+	h := &Handler{Server: &Server{Pool: &recPool{}, API: &recAPI{}, MaxBody: 32, Log: slog.Default()}}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := http.Post(srv.URL+"/ai/v1/chat/completions", "application/json", strings.NewReader(strings.Repeat("x", 64)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s, want 413", res.StatusCode, body)
+	}
+	var out errorBody
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("json: %v body=%s", err, body)
+	}
+	if out.Error.Type != "invalid_request_error" || out.Error.Code != "request_too_large" {
+		t.Fatalf("body=%s", body)
+	}
+}
+
+func TestCompletionsBodyTooLarge(t *testing.T) {
+	h := &Handler{Server: &Server{Pool: &recPool{}, API: &recAPI{}, MaxBody: 32, Log: slog.Default()}}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := http.Post(srv.URL+"/ai/v1/completions", "application/json", strings.NewReader(strings.Repeat("x", 64)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s, want 413", res.StatusCode, body)
+	}
+	var out errorBody
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("json: %v body=%s", err, body)
+	}
+	if out.Error.Code != "request_too_large" {
+		t.Fatalf("body=%s", body)
+	}
+}
+
 func TestListModelsUsesCacheWithoutPool(t *testing.T) {
 	pool := &recPool{}
 	api := &recAPI{}

@@ -1,6 +1,7 @@
 package completion_api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -176,13 +177,33 @@ func (s *Server) writeAPIError(w http.ResponseWriter, r *http.Request, status in
 	}
 	var body errorBody
 	body.Error.Message = msg
-	body.Error.Type = "server_error"
-	body.Error.Code = "internal_error"
-	if status == http.StatusBadRequest {
-		body.Error.Type = "invalid_request_error"
-		body.Error.Code = "bad_request"
-	}
+	body.Error.Type, body.Error.Code = openAIErrorTypeCode(status)
 	writeJSON(w, status, body)
+}
+
+// openAIErrorTypeCode maps HTTP status to OpenAI-ish error.type / error.code.
+func openAIErrorTypeCode(status int) (typ, code string) {
+	switch status {
+	case http.StatusBadRequest:
+		return "invalid_request_error", "bad_request"
+	case http.StatusUnauthorized:
+		return "invalid_request_error", "unauthorized"
+	case http.StatusNotFound:
+		return "invalid_request_error", "not_found"
+	case http.StatusMethodNotAllowed:
+		return "invalid_request_error", "method_not_allowed"
+	case http.StatusRequestEntityTooLarge:
+		return "invalid_request_error", "request_too_large"
+	case http.StatusTooManyRequests:
+		return "rate_limit_error", "rate_limit_exceeded"
+	case http.StatusBadGateway, http.StatusGatewayTimeout, http.StatusServiceUnavailable:
+		return "api_error", "upstream_error"
+	default:
+		if status >= 500 {
+			return "server_error", "internal_error"
+		}
+		return "invalid_request_error", "bad_request"
+	}
 }
 
 func (s *Server) writeUpstreamError(w http.ResponseWriter, r *http.Request, err error) {
@@ -197,6 +218,9 @@ func (s *Server) writeUpstreamError(w http.ResponseWriter, r *http.Request, err 
 	s.writeAPIError(w, r, status, msg)
 }
 
+// ErrBodyTooLarge is returned by readJSONBody when the request exceeds max bytes.
+var ErrBodyTooLarge = errors.New("request body too large")
+
 func readJSONBody(r *http.Request, max int64, dst any) error {
 	defer r.Body.Close()
 	limited := io.LimitReader(r.Body, max+1)
@@ -205,10 +229,45 @@ func readJSONBody(r *http.Request, max int64, dst any) error {
 		return err
 	}
 	if int64(len(data)) > max {
-		return fmt.Errorf("request body too large")
+		return ErrBodyTooLarge
 	}
 	if err := json.Unmarshal(data, dst); err != nil {
 		return fmt.Errorf("invalid JSON: %w", err)
 	}
 	return nil
+}
+
+func writeJSONBodyError(s *Server, w http.ResponseWriter, r *http.Request, err error) {
+	if s == nil {
+		return
+	}
+	status := http.StatusBadRequest
+	if errors.Is(err, ErrBodyTooLarge) {
+		status = http.StatusRequestEntityTooLarge
+	}
+	msg := "invalid request"
+	if err != nil {
+		msg = err.Error()
+	}
+	s.writeAPIError(w, r, status, msg)
+}
+
+// marshalJSONNoEscape encodes v as JSON without HTML-escaping <>&.
+func marshalJSONNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSpace(buf.Bytes()), nil
+}
+
+func writeJSONValue(w io.Writer, v any) error {
+	b, err := marshalJSONNoEscape(v)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(append(b, '\n'))
+	return err
 }

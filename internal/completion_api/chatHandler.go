@@ -15,7 +15,7 @@ const toolCallGrace = 150 * time.Millisecond
 func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var req ChatCompletionRequest
 	if err := readJSONBody(r, h.Server.maxBody(), &req); err != nil {
-		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
+		writeJSONBodyError(h.Server, w, r, err)
 		return
 	}
 	if len(req.Messages) == 0 {
