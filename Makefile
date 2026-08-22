@@ -225,6 +225,18 @@ docker/dev: ##@ runs app in docker via air
 		--name dev-$(PROJECT_SHORT_NAME) \
 		local
 
+.PHONY: docker/local
+docker/local: ##@ recreate detached compose local (air) stack
+	docker compose up -d --build --force-recreate local
+
+.PHONY: docker/local/restart
+docker/local/restart: ##@ restart compose local service
+	docker compose restart local
+
+.PHONY: docker/local/logs
+docker/local/logs: ##@ tail compose local logs
+	docker compose logs --tail=100 local
+
 .PHONY: docker/deploy
 docker/deploy: ##@ runs app in docker in a fresh environment
 	@docker rm -f dev-$(PROJECT_SHORT_NAME) > /dev/null 2>&1 || true

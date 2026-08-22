@@ -273,4 +273,10 @@ func assertOpenAIError(t *testing.T, res *http.Response, body []byte, wantMsg, w
 	if got.Error.Message != wantMsg || got.Error.Type != "invalid_request_error" || got.Error.Code != wantCode {
 		t.Fatalf("error=%+v, want message=%q code=%q body=%s", got.Error, wantMsg, wantCode, body)
 	}
+	if got.Error.Param != nil {
+		t.Fatalf("error.param=%#v, want null body=%s", got.Error.Param, body)
+	}
+	if !bytes.Contains(body, []byte(`"param":null`)) {
+		t.Fatalf("error body missing \"param\":null: %s", body)
+	}
 }
