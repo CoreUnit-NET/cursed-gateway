@@ -59,7 +59,7 @@ type chatCompletionChoice struct {
 
 type chatMsg struct {
 	Role      string                          `json:"role"`
-	Content   string                          `json:"content"`
+	Content   *string                         `json:"content"` // null when tool_calls-only (OpenAI shape)
 	ToolCalls []cursor_api_sdk.OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -68,6 +68,30 @@ type chatDelta struct {
 	Content   string           `json:"content,omitempty"`
 	ToolCalls []streamToolCall `json:"tool_calls,omitempty"`
 }
+
+// Legacy OpenAI text completions response (POST /v1/completions).
+type textCompletionResponse struct {
+	ID      string                 `json:"id"`
+	Object  string                 `json:"object"`
+	Created int64                  `json:"created"`
+	Model   string                 `json:"model"`
+	Choices []textCompletionChoice `json:"choices"`
+	Usage   *usage                 `json:"usage,omitempty"`
+}
+
+type textCompletionChoice struct {
+	Index        int     `json:"index"`
+	Text         string  `json:"text"`
+	FinishReason *string `json:"finish_reason"`
+}
+
+// apiEnvelope selects chat.completion vs text_completion response shape.
+type apiEnvelope int
+
+const (
+	envelopeChat apiEnvelope = iota
+	envelopeCompletions
+)
 
 type streamToolCall struct {
 	Index    int    `json:"index"`

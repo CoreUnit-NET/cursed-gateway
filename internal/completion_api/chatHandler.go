@@ -23,13 +23,13 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if req.Stream {
-		h.streamChat(w, r, req)
+		h.streamChat(w, r, req, envelopeChat)
 		return
 	}
-	h.nonStreamChat(w, r, req)
+	h.nonStreamChat(w, r, req, envelopeChat)
 }
 
-func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest) {
+func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest, envelope apiEnvelope) {
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
 	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 {
@@ -41,13 +41,16 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 
 	bridgeKey := cursor_api_sdk.DeriveBridgeKeyWithIdentity(req.Model, req.Messages, ident)
 	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	if envelope == envelopeCompletions {
+		id = fmt.Sprintf("cmpl-%d", time.Now().UnixNano())
+	}
 	created := time.Now().Unix()
 	dw := newDelayedWriter(w)
 
 	if len(parsed.ToolResults) > 0 {
 		br := h.Server.bridges().take(bridgeKey)
 		if br == nil || br.RC == nil {
-			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation")
+			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation; send conversation_id/thread_id (or the same sticky id) on every tool turn")
 			return
 		}
 		if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
@@ -83,7 +86,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		}
 		br.RC.Close()
 		u := br.RC.Usage()
-		writeNonStreamText(dw, id, created, model, text, u)
+		writeNonStreamText(dw, id, created, model, text, u, envelope)
 		h.Server.log().Info("chat completion",
 			"model", model,
 			"stream", false,
@@ -178,7 +181,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 		)
 		return
 	}
-	writeNonStreamText(dw, id, created, modelID, text, runUsage)
+	writeNonStreamText(dw, id, created, modelID, text, runUsage, envelope)
 	h.Server.log().Info("chat completion",
 		"model", modelID,
 		"stream", false,
@@ -191,7 +194,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	)
 }
 
-func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest) {
+func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest, envelope apiEnvelope) {
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
 	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 {
@@ -209,6 +212,9 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 	}
 
 	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	if envelope == envelopeCompletions {
+		id = fmt.Sprintf("cmpl-%d", time.Now().UnixNano())
+	}
 	created := time.Now().Unix()
 	dw := newDelayedWriter(w)
 	committed := false
@@ -230,7 +236,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 	if len(parsed.ToolResults) > 0 {
 		br := h.Server.bridges().take(bridgeKey)
 		if br == nil || br.RC == nil {
-			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation")
+			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation; send conversation_id/thread_id (or the same sticky id) on every tool turn")
 			return
 		}
 		model := br.ModelID
@@ -243,7 +249,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 			_ = dw.Commit()
 			return
 		}
-		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h, "", ""); err != nil && !committed {
+		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h, "", "", envelope); err != nil && !committed {
 			br.RC.Close()
 			h.Server.writeUpstreamError(dw, r, err)
 			_ = dw.Commit()
@@ -284,7 +290,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		if err != nil {
 			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
-		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h, payload.Conversation, payload.CheckpointMode); err != nil {
+		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h, payload.Conversation, payload.CheckpointMode, envelope); err != nil {
 			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
 		return nil
@@ -308,14 +314,28 @@ func streamFromRun(
 	h *Handler,
 	cursorConvID string,
 	checkpointMode string,
+	envelope apiEnvelope,
 ) error {
 	toolIndex := 0
 	parked := false
+	roleSent := false
 	defer func() {
 		if !parked && rc != nil {
 			rc.Close()
 		}
 	}()
+
+	ensureRole := func() error {
+		if envelope != envelopeChat || roleSent {
+			return nil
+		}
+		if err := writeSSERole(dw, id, created, model); err != nil {
+			return err
+		}
+		roleSent = true
+		flusher.Flush()
+		return nil
+	}
 
 	for {
 		ev, ok := rc.Recv()
@@ -326,12 +346,21 @@ func streamFromRun(
 			if !*committed {
 				return ev.Err
 			}
+			// Headers already flushed — terminate SSE so clients are not left hanging.
 			h.Server.log().Warn("stream error after commit", "err", ev.Err)
+			_ = ensureRole()
+			_ = writeSSEFinish(dw, id, created, model, "stop", envelope)
+			_ = writeSSEUsage(dw, id, created, model, rc.Usage(), envelope)
+			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
+			dw.Flush()
 			return nil
 		}
 		if ev.ToolCall != nil {
 			calls := collectMoreToolCalls(rc, *ev.ToolCall, toolCallGrace)
 			if err := commitSSE(); err != nil {
+				return err
+			}
+			if err := ensureRole(); err != nil {
 				return err
 			}
 			for _, pe := range calls {
@@ -341,11 +370,11 @@ func streamFromRun(
 				toolIndex++
 				flusher.Flush()
 			}
-			if err := writeSSEFinish(dw, id, created, model, "tool_calls"); err != nil {
+			if err := writeSSEFinish(dw, id, created, model, "tool_calls", envelope); err != nil {
 				return err
 			}
 			u := rc.Usage()
-			if err := writeSSEUsage(dw, id, created, model, u); err != nil {
+			if err := writeSSEUsage(dw, id, created, model, u, envelope); err != nil {
 				return err
 			}
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
@@ -368,11 +397,14 @@ func streamFromRun(
 			if err := commitSSE(); err != nil {
 				return err
 			}
-			if err := writeSSEFinish(dw, id, created, model, "stop"); err != nil {
+			if err := ensureRole(); err != nil {
+				return err
+			}
+			if err := writeSSEFinish(dw, id, created, model, "stop", envelope); err != nil {
 				return err
 			}
 			u := rc.Usage()
-			if err := writeSSEUsage(dw, id, created, model, u); err != nil {
+			if err := writeSSEUsage(dw, id, created, model, u, envelope); err != nil {
 				return err
 			}
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
@@ -388,14 +420,16 @@ func streamFromRun(
 			)
 			return nil
 		}
-		if ev.Text == "" {
+		if ev.Thinking || ev.Text == "" {
 			continue
 		}
-		// Thinking deltas are kept as plain content (no <think> wrappers).
 		if err := commitSSE(); err != nil {
 			return err
 		}
-		if err := writeSSEContent(dw, id, created, model, ev.Text); err != nil {
+		if err := ensureRole(); err != nil {
+			return err
+		}
+		if err := writeSSEContent(dw, id, created, model, ev.Text, envelope); err != nil {
 			return err
 		}
 		flusher.Flush()
@@ -403,8 +437,11 @@ func streamFromRun(
 	if !*committed {
 		return cursor_api_sdk.ErrIncompleteRun
 	}
+	// Stream ended without TurnEnded after content was already flushed.
+	_ = ensureRole()
+	_ = writeSSEFinish(dw, id, created, model, "stop", envelope)
 	u := rc.Usage()
-	_ = writeSSEUsage(dw, id, created, model, u)
+	_ = writeSSEUsage(dw, id, created, model, u, envelope)
 	_, _ = dw.Write([]byte("data: [DONE]\n\n"))
 	dw.Flush()
 	return nil
@@ -427,10 +464,9 @@ func consumeRun(rc *cursor_api_sdk.RunControl, grace time.Duration) (string, []c
 		if ev.TurnEnded {
 			return b.String(), nil, nil
 		}
-		if ev.Text == "" {
+		if ev.Thinking || ev.Text == "" {
 			continue
 		}
-		// Thinking deltas are kept as plain content (no <think> wrappers).
 		b.WriteString(ev.Text)
 	}
 	return b.String(), nil, cursor_api_sdk.ErrIncompleteRun
@@ -470,8 +506,27 @@ func collectMoreToolCalls(rc *cursor_api_sdk.RunControl, first cursor_api_sdk.Pe
 	return out
 }
 
-func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text string, u cursor_api_sdk.Usage) {
+func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text string, u cursor_api_sdk.Usage, envelope apiEnvelope) {
 	stop := "stop"
+	dw.Header().Set("Content-Type", "application/json")
+	if envelope == envelopeCompletions {
+		resp := textCompletionResponse{
+			ID:      id,
+			Object:  "text_completion",
+			Created: created,
+			Model:   model,
+			Choices: []textCompletionChoice{{
+				Index:        0,
+				Text:         text,
+				FinishReason: &stop,
+			}},
+			Usage: toAPIUsage(u),
+		}
+		_ = json.NewEncoder(dw).Encode(resp)
+		_ = dw.Commit()
+		return
+	}
+	content := text
 	resp := chatCompletionResponse{
 		ID:      id,
 		Object:  "chat.completion",
@@ -479,12 +534,11 @@ func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text
 		Model:   model,
 		Choices: []chatCompletionChoice{{
 			Index:        0,
-			Message:      &chatMsg{Role: "assistant", Content: text},
+			Message:      &chatMsg{Role: "assistant", Content: &content},
 			FinishReason: &stop,
 		}},
 		Usage: toAPIUsage(u),
 	}
-	dw.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(dw).Encode(resp)
 	_ = dw.Commit()
 }
@@ -498,6 +552,10 @@ func writeNonStreamToolCalls(dw *delayedWriter, id string, created int64, model,
 		tc.Function.Arguments = pe.DecodedArgs
 		toolCalls = append(toolCalls, tc)
 	}
+	var content *string
+	if text != "" {
+		content = &text
+	}
 	resp := chatCompletionResponse{
 		ID:      id,
 		Object:  "chat.completion",
@@ -507,7 +565,7 @@ func writeNonStreamToolCalls(dw *delayedWriter, id string, created int64, model,
 			Index: 0,
 			Message: &chatMsg{
 				Role:      "assistant",
-				Content:   text,
+				Content:   content,
 				ToolCalls: toolCalls,
 			},
 			FinishReason: &reason,
@@ -527,7 +585,34 @@ func toAPIUsage(u cursor_api_sdk.Usage) *usage {
 	}
 }
 
-func writeSSEContent(w http.ResponseWriter, id string, created int64, model, content string) error {
+func writeSSERole(w http.ResponseWriter, id string, created int64, model string) error {
+	payload := chatCompletionResponse{
+		ID:      id,
+		Object:  "chat.completion.chunk",
+		Created: created,
+		Model:   model,
+		Choices: []chatCompletionChoice{{
+			Index: 0,
+			Delta: &chatDelta{Role: "assistant"},
+		}},
+	}
+	return writeSSEData(w, payload)
+}
+
+func writeSSEContent(w http.ResponseWriter, id string, created int64, model, content string, envelope apiEnvelope) error {
+	if envelope == envelopeCompletions {
+		payload := textCompletionResponse{
+			ID:      id,
+			Object:  "text_completion",
+			Created: created,
+			Model:   model,
+			Choices: []textCompletionChoice{{
+				Index: 0,
+				Text:  content,
+			}},
+		}
+		return writeSSEJSON(w, payload)
+	}
 	payload := chatCompletionResponse{
 		ID:      id,
 		Object:  "chat.completion.chunk",
@@ -566,8 +651,22 @@ func writeSSEToolCall(w http.ResponseWriter, id string, created int64, model str
 	return writeSSEData(w, payload)
 }
 
-func writeSSEFinish(w http.ResponseWriter, id string, created int64, model, reason string) error {
+func writeSSEFinish(w http.ResponseWriter, id string, created int64, model, reason string, envelope apiEnvelope) error {
 	r := reason
+	if envelope == envelopeCompletions {
+		payload := textCompletionResponse{
+			ID:      id,
+			Object:  "text_completion",
+			Created: created,
+			Model:   model,
+			Choices: []textCompletionChoice{{
+				Index:        0,
+				Text:         "",
+				FinishReason: &r,
+			}},
+		}
+		return writeSSEJSON(w, payload)
+	}
 	payload := chatCompletionResponse{
 		ID:      id,
 		Object:  "chat.completion.chunk",
@@ -583,7 +682,18 @@ func writeSSEFinish(w http.ResponseWriter, id string, created int64, model, reas
 }
 
 // writeSSEUsage emits the OpenAI usage chunk with empty choices (oauth SSE pattern).
-func writeSSEUsage(w http.ResponseWriter, id string, created int64, model string, u cursor_api_sdk.Usage) error {
+func writeSSEUsage(w http.ResponseWriter, id string, created int64, model string, u cursor_api_sdk.Usage, envelope apiEnvelope) error {
+	if envelope == envelopeCompletions {
+		payload := textCompletionResponse{
+			ID:      id,
+			Object:  "text_completion",
+			Created: created,
+			Model:   model,
+			Choices: []textCompletionChoice{},
+			Usage:   toAPIUsage(u),
+		}
+		return writeSSEJSON(w, payload)
+	}
 	payload := chatCompletionResponse{
 		ID:      id,
 		Object:  "chat.completion.chunk",
@@ -596,6 +706,10 @@ func writeSSEUsage(w http.ResponseWriter, id string, created int64, model string
 }
 
 func writeSSEData(w http.ResponseWriter, payload chatCompletionResponse) error {
+	return writeSSEJSON(w, payload)
+}
+
+func writeSSEJSON(w http.ResponseWriter, payload any) error {
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err

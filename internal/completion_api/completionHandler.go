@@ -29,10 +29,10 @@ func (h *Handler) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		Stream: req.Stream,
 	}
 	if chat.Stream {
-		h.streamChat(w, r, chat)
+		h.streamChat(w, r, chat, envelopeCompletions)
 		return
 	}
-	h.nonStreamChat(w, r, chat)
+	h.nonStreamChat(w, r, chat, envelopeCompletions)
 }
 
 func promptToString(prompt any) string {

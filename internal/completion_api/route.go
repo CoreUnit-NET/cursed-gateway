@@ -8,7 +8,7 @@ AI base is /ai/v1. /v1 and unprefixed routes stay as aliases.
 Routes:
   GET  /ai/v1/models
   POST /ai/v1/chat/completions
-  POST /ai/v1/completions  (thin wrapper around chat)
+  POST /ai/v1/completions  (text_completion envelope; same Cursor run)
 */
 
 import (
