@@ -333,8 +333,8 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("POST empty completions status=%d body=%s, want 400", res.StatusCode, body)
 	}
-	if !strings.Contains(string(body), "No user message found") {
-		t.Fatalf("POST empty completions body=%s, want No user message found", body)
+	if !strings.Contains(string(body), "prompt is required") {
+		t.Fatalf("POST empty completions body=%s, want prompt is required", body)
 	}
 
 	postBadChat, err := http.NewRequest(http.MethodPost, base+"/chat/completions", strings.NewReader(`{`))
