@@ -89,6 +89,58 @@ func TestWrapMuxJSONNotFoundAndMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestWrapMuxTrailingSlashAIAndHealth(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ai/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ai/v1/models" {
+			t.Fatalf("models path=%q, want trimmed", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}` + "\n"))
+	})
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			t.Fatalf("health path=%q, want trimmed", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}` + "\n"))
+	})
+
+	h := wrapMux(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ai/v1/models/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ai/v1/models/ status=%d, want 200", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /health/ status=%d, want 200", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /healthz/ status=%d, want 200", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/status/", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /api/status/ status=%d, want 404 (control paths untrimmed)", rec.Code)
+	}
+}
+
 func TestWrapMuxHealthzAccessLogIsDebug(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

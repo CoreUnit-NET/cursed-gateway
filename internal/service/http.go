@@ -70,6 +70,7 @@ func wrapMux(mux *http.ServeMux, log *slog.Logger) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w}
 		start := time.Now()
 		if r != nil {
+			trimAITrailingSlash(r)
 			if _, pattern := mux.Handler(r); pattern == "" {
 				if allow := allowedMethods(mux, r); len(allow) > 0 {
 					rec.Header().Set("Allow", strings.Join(allow, ", "))
@@ -101,7 +102,7 @@ func logRequest(log *slog.Logger, r *http.Request, status int, d time.Duration) 
 		}
 	}
 	attrs := []any{"method", method, "path", path, "status", status, "ms", d.Milliseconds()}
-	if path == "/healthz" {
+	if path == "/healthz" || path == "/health" {
 		log.Debug("request", attrs...)
 		return
 	}
@@ -143,6 +144,7 @@ func writeMuxError(w http.ResponseWriter, r *http.Request, status int, msg strin
 }
 
 func isAIPath(path string) bool {
+	path = strings.TrimRight(path, "/")
 	switch {
 	case path == "/ai" || strings.HasPrefix(path, "/ai/"):
 		return true
@@ -156,6 +158,23 @@ func isAIPath(path string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func trimAITrailingSlash(r *http.Request) {
+	if r == nil || r.URL == nil {
+		return
+	}
+	path := r.URL.Path
+	if path == "" || path == "/" {
+		return
+	}
+	trimmed := strings.TrimRight(path, "/")
+	if trimmed == "" || trimmed == path {
+		return
+	}
+	if isAIPath(trimmed) || trimmed == "/healthz" || trimmed == "/health" {
+		r.URL.Path = trimmed
 	}
 }
 
