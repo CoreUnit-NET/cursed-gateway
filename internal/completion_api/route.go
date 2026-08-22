@@ -25,10 +25,13 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	h.mountAI(mux, "/ai/v1")
 	h.mountAI(mux, "/v1")
 	h.mountAI(mux, "")
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	})
+	mux.HandleFunc("GET /healthz", handleHealth)
+	mux.HandleFunc("GET /health", handleHealth)
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
 }
 
 func (h *Handler) mountAI(mux *http.ServeMux, prefix string) {
