@@ -76,6 +76,9 @@ func TestNewStoreReadsExistingThenRewrites(t *testing.T) {
 }
 
 func TestNewStoreFailsUnwritableDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("chmod 0555 does not block writes as root; run make targets as non-root")
+	}
 	dir := t.TempDir()
 	locked := filepath.Join(dir, "locked")
 	if err := os.Mkdir(locked, 0o755); err != nil {
