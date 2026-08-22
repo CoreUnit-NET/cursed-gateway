@@ -2,5 +2,5 @@ tmp_dir = "tmp"
 
 [build]
   cmd = "make -s init"
-  entrypoint = "./bin"
-  exclude_dir = ["tmp", "context", "data", "bin"]
+  bin = "bin"
+  exclude_dir = ["tmp", "data", ".store", "context", "bin", "vendor", ".git"]

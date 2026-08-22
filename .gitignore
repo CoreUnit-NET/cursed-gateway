@@ -23,5 +23,6 @@ go.work.sum
 bin
 tmp
 .env
-context
 data/
+.store/
+context/

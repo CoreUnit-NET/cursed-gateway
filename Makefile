@@ -1,5 +1,5 @@
 # prepare env file and tmp dir
-$(shell mkdir -p tmp/out 2>/dev/null; touch .env; git init -q)
+$(shell mkdir -p tmp/out && touch .env && git init -q)
 
 # import custom makefiles
 -include Makefile.project
@@ -43,6 +43,10 @@ HOST ?= 0.0.0.0
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 GOCACHE ?= $(shell if [ -d "$$(go env GOCACHE)" ]; then realpath "$$(go env GOCACHE)"; else mkdir -p tmp/.cache/go-build && realpath "tmp/.cache/go-build"; fi)
+
+# Host identity for compose bind-mount ownership (see compose.yml RUN_UID/RUN_GID)
+export UID ?= $(shell id -u)
+export GID ?= $(shell id -g)
 
 ##@ These environment variables control various project configurations, including build, run, and deployment settings.
 ##@ They are loaded from the `.env.project` file and overwrite the `.env` file variables.
@@ -147,8 +151,8 @@ clean: ##@ cleans up generated files and docker cache
 	fi
 	@if command -v docker 2>&1 >/dev/null; then \
 		echo "cleanup docker containers and images..."; \
-		docker rm -f dev-local-$(PROJECT_SHORT_NAME)-bash > /dev/null 2>&1 \
-		docker rm -f dev-local-$(PROJECT_SHORT_NAME) > /dev/null 2>&1 \
+		docker compose down --remove-orphans > /dev/null 2>&1 || true; \
+		docker rm -f dev-$(PROJECT_SHORT_NAME) > /dev/null 2>&1 || true; \
 		docker image prune -f; \
 	fi
 	@echo "cleanup done!"
@@ -188,7 +192,6 @@ test: ##@ runs all GO tests recursively without coverage
 .PHONY: cover
 cover: ##@ generates a raw and html test coverage report
 	@echo "Run go tests recursively..."
-	@mkdir -p tmp
 	go test -coverprofile tmp/cover.out ./...
 	go tool cover -html=tmp/cover.out -o tmp/cover.html
 	@echo "cover.out and cover.html generated in tmp!"
@@ -224,18 +227,6 @@ docker/dev: ##@ runs app in docker via air
 	docker compose run --rm -it --build --service-ports \
 		--name dev-$(PROJECT_SHORT_NAME) \
 		local
-
-.PHONY: docker/local
-docker/local: ##@ recreate detached compose local (air) stack
-	docker compose up -d --build --force-recreate local
-
-.PHONY: docker/local/restart
-docker/local/restart: ##@ restart compose local service
-	docker compose restart local
-
-.PHONY: docker/local/logs
-docker/local/logs: ##@ tail compose local logs
-	docker compose logs --tail=100 local
 
 .PHONY: docker/deploy
 docker/deploy: ##@ runs app in docker in a fresh environment
