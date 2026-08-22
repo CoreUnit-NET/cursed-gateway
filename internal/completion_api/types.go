@@ -1,19 +1,44 @@
 package completion_api
 
-import cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
+import (
+	"encoding/json"
+
+	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
+)
+
+// StreamOptions is the OpenAI stream_options object.
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
 
 // ChatCompletionRequest is the OpenAI chat completions body we accept.
 type ChatCompletionRequest struct {
-	Model    string                         `json:"model"`
-	Messages []cursor_api_sdk.ChatMessage   `json:"messages"`
-	Stream   bool                           `json:"stream"`
-	Tools    []cursor_api_sdk.OpenAIToolDef `json:"tools,omitempty"`
+	Model         string                         `json:"model"`
+	Messages      []cursor_api_sdk.ChatMessage   `json:"messages"`
+	Stream        bool                           `json:"stream"`
+	StreamOptions *StreamOptions                 `json:"stream_options,omitempty"`
+	N             *int                           `json:"n,omitempty"`
+	Tools         []cursor_api_sdk.OpenAIToolDef `json:"tools,omitempty"`
+	ToolChoice    json.RawMessage                `json:"tool_choice,omitempty"`
 	// Sticky identity fields (otto conversation/identity.ts) — first non-empty wins.
 	ConversationID string         `json:"conversation_id,omitempty"`
 	ThreadID       string         `json:"thread_id,omitempty"`
 	SessionID      string         `json:"session_id,omitempty"`
 	User           string         `json:"user,omitempty"`
 	Metadata       map[string]any `json:"metadata,omitempty"`
+}
+
+func (r *ChatCompletionRequest) UnmarshalJSON(data []byte) error {
+	type plain ChatCompletionRequest
+	var aux struct {
+		plain
+		Stream json.RawMessage `json:"stream"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*r = ChatCompletionRequest(aux.plain)
+	return parseBoolish(aux.Stream, &r.Stream)
 }
 
 func (r ChatCompletionRequest) conversationIdentity() cursor_api_sdk.ConversationIdentity {
@@ -82,6 +107,7 @@ type textCompletionResponse struct {
 type textCompletionChoice struct {
 	Index        int     `json:"index"`
 	Text         string  `json:"text"`
+	Logprobs     *any    `json:"logprobs"`
 	FinishReason *string `json:"finish_reason"`
 }
 
