@@ -35,3 +35,33 @@ func TestCollectVisibleTextIncomplete(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestCollectVisibleTextThinkingOnly(t *testing.T) {
+	ch := make(chan StreamEvent, 2)
+	ch <- StreamEvent{Text: "secret", Thinking: true}
+	ch <- StreamEvent{TurnEnded: true}
+	close(ch)
+
+	got, err := collectVisibleText(ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+func TestCollectVisibleTextPropagatesError(t *testing.T) {
+	ch := make(chan StreamEvent, 2)
+	ch <- StreamEvent{Text: "before"}
+	ch <- StreamEvent{Err: errors.New("boom")}
+	close(ch)
+
+	got, err := collectVisibleText(ch)
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if got != "before" {
+		t.Fatalf("got %q on error, want partial before", got)
+	}
+}
