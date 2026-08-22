@@ -25,6 +25,23 @@ func TestBuildMcpToolDefinitions(t *testing.T) {
 	}
 }
 
+func TestBuildMcpToolDefinitionsSkipsNonFunctionAndEmptyName(t *testing.T) {
+	custom := OpenAIToolDef{Type: "custom"}
+	custom.Function.Name = "ignored"
+	empty := OpenAIToolDef{Type: "function"}
+	keep := OpenAIToolDef{Type: "function"}
+	keep.Function.Name = "lookup"
+	keep.Function.Parameters = json.RawMessage(`{"type":"object","properties":{}}`)
+
+	defs, err := BuildMcpToolDefinitions([]OpenAIToolDef{custom, empty, keep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(defs) != 1 || defs[0].GetName() != "lookup" {
+		t.Fatalf("defs = %#v", defs)
+	}
+}
+
 func TestDeriveBridgeKeyStable(t *testing.T) {
 	msgs := []ChatMessage{
 		{Role: "user", Content: "hello world"},

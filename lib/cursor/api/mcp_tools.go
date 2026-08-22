@@ -53,6 +53,9 @@ type ToolResultInfo struct {
 func BuildMcpToolDefinitions(tools []OpenAIToolDef) ([]*cursorProto.McpToolDefinition, error) {
 	out := make([]*cursorProto.McpToolDefinition, 0, len(tools))
 	for _, t := range tools {
+		if t.Type != "" && t.Type != "function" {
+			continue
+		}
 		name := t.Function.Name
 		if name == "" {
 			continue
