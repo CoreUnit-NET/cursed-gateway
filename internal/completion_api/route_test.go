@@ -21,7 +21,10 @@ func TestMountAIPrefixes(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	for _, path := range []string{"/ai/v1/models", "/v1/models", "/models"} {
+	for _, path := range []string{
+		"/ai/v1/models", "/v1/models", "/models",
+		"/ai/v1/models/", "/v1/models/", "/models/",
+	} {
 		res, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -69,7 +72,10 @@ func TestMountAIPrefixes(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/ai/v1/chat/completions", "/v1/chat/completions", "/chat/completions"} {
+	for _, path := range []string{
+		"/ai/v1/chat/completions", "/v1/chat/completions", "/chat/completions",
+		"/ai/v1/chat/completions/", "/v1/chat/completions/", "/chat/completions/",
+	} {
 		res, body := postJSON(t, srv.URL+path, map[string]string{"model": "x"})
 		if res.StatusCode != http.StatusBadRequest {
 			t.Fatalf("POST %s status=%d body=%s, want 400", path, res.StatusCode, body)
@@ -80,7 +86,10 @@ func TestMountAIPrefixes(t *testing.T) {
 		assertOpenAIErrorParamNull(t, body)
 	}
 
-	for _, path := range []string{"/ai/v1/completions", "/v1/completions", "/completions"} {
+	for _, path := range []string{
+		"/ai/v1/completions", "/v1/completions", "/completions",
+		"/ai/v1/completions/", "/v1/completions/", "/completions/",
+	} {
 		res, body := postJSON(t, srv.URL+path, map[string]string{"model": "x"})
 		if res.StatusCode != http.StatusBadRequest {
 			t.Fatalf("POST %s status=%d body=%s, want 400", path, res.StatusCode, body)

@@ -35,7 +35,11 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) mountAI(mux *http.ServeMux, prefix string) {
+	// Exact paths plus trailing-slash aliases (Go 1.22 mux is exact-match).
 	mux.HandleFunc("GET "+prefix+"/models", h.handleModels)
+	mux.HandleFunc("GET "+prefix+"/models/", h.handleModels)
 	mux.HandleFunc("POST "+prefix+"/chat/completions", h.handleChatCompletions)
+	mux.HandleFunc("POST "+prefix+"/chat/completions/", h.handleChatCompletions)
 	mux.HandleFunc("POST "+prefix+"/completions", h.handleCompletions)
+	mux.HandleFunc("POST "+prefix+"/completions/", h.handleCompletions)
 }
