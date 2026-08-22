@@ -526,6 +526,11 @@ func (c *Client) CollectText(ctx context.Context, accessToken string, payload *R
 	if err != nil {
 		return "", err
 	}
+	return collectVisibleText(ch)
+}
+
+// collectVisibleText concatenates non-thinking text deltas until turn end.
+func collectVisibleText(ch <-chan StreamEvent) (string, error) {
 	var b strings.Builder
 	for ev := range ch {
 		if ev.Err != nil {
@@ -534,10 +539,9 @@ func (c *Client) CollectText(ctx context.Context, accessToken string, payload *R
 		if ev.TurnEnded {
 			return b.String(), nil
 		}
-		if ev.Text == "" {
+		if ev.Thinking || ev.Text == "" {
 			continue
 		}
-		// Thinking deltas are kept as plain content (no <think> wrappers).
 		b.WriteString(ev.Text)
 	}
 	return b.String(), ErrIncompleteRun
