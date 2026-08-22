@@ -1,7 +1,6 @@
 package completion_api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -22,6 +21,10 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, "messages is required")
 		return
 	}
+	if err := validateN(req.N); err != nil {
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 	if req.Stream {
 		h.streamChat(w, r, req, envelopeChat)
 		return
@@ -32,7 +35,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest, envelope apiEnvelope) {
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
-	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 {
+	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 && len(parsed.Turns) == 0 {
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
@@ -40,66 +43,80 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 	parsed.StickyConversationID = cursor_api_sdk.StickyConversationID(ident)
 
 	bridgeKey := cursor_api_sdk.DeriveBridgeKeyWithIdentity(req.Model, req.Messages, ident)
-	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	id := newChatCompletionID()
 	if envelope == envelopeCompletions {
-		id = fmt.Sprintf("cmpl-%d", time.Now().UnixNano())
+		id = newTextCompletionID()
 	}
 	created := time.Now().Unix()
 	dw := newDelayedWriter(w)
 
 	if len(parsed.ToolResults) > 0 {
 		br := h.Server.bridges().take(bridgeKey)
-		if br == nil || br.RC == nil {
-			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation; send conversation_id/thread_id (or the same sticky id) on every tool turn")
-			return
-		}
-		if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
+		if br != nil && br.RC != nil {
+			if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
+				br.RC.Close()
+				h.Server.writeUpstreamError(dw, r, err)
+				_ = dw.Commit()
+				return
+			}
+			model := br.ModelID
+			if model == "" {
+				model = cursor_api_sdk.ResolveModelID(req.Model)
+			}
+			text, calls, err := consumeRun(br.RC, toolCallGrace)
+			if err != nil {
+				br.RC.Close()
+				h.Server.writeUpstreamError(dw, r, err)
+				_ = dw.Commit()
+				return
+			}
+			if len(calls) > 0 {
+				h.Server.bridges().park(bridgeKey, br.RC, model)
+				writeNonStreamToolCalls(dw, id, created, model, text, calls, br.RC.Usage())
+				h.Server.log().Info("chat completion",
+					"model", model,
+					"stream", false,
+					"finish", "tool_calls",
+					"tool_calls", len(calls),
+					"resumed", true,
+					"prompt_tokens", br.RC.Usage().PromptTokens,
+					"completion_tokens", br.RC.Usage().CompletionTokens,
+				)
+				return
+			}
 			br.RC.Close()
-			h.Server.writeUpstreamError(dw, r, err)
-			_ = dw.Commit()
-			return
-		}
-		model := br.ModelID
-		if model == "" {
-			model = cursor_api_sdk.ResolveModelID(req.Model)
-		}
-		text, calls, err := consumeRun(br.RC, toolCallGrace)
-		if err != nil {
-			br.RC.Close()
-			h.Server.writeUpstreamError(dw, r, err)
-			_ = dw.Commit()
-			return
-		}
-		if len(calls) > 0 {
-			h.Server.bridges().park(bridgeKey, br.RC, model)
-			writeNonStreamToolCalls(dw, id, created, model, text, calls, br.RC.Usage())
+			u := br.RC.Usage()
+			writeNonStreamText(dw, id, created, model, text, u, envelope)
 			h.Server.log().Info("chat completion",
 				"model", model,
 				"stream", false,
-				"finish", "tool_calls",
-				"tool_calls", len(calls),
+				"finish", "stop",
+				"chars", len(text),
 				"resumed", true,
-				"prompt_tokens", br.RC.Usage().PromptTokens,
-				"completion_tokens", br.RC.Usage().CompletionTokens,
+				"prompt_tokens", u.PromptTokens,
+				"completion_tokens", u.CompletionTokens,
 			)
 			return
 		}
-		br.RC.Close()
-		u := br.RC.Usage()
-		writeNonStreamText(dw, id, created, model, text, u, envelope)
-		h.Server.log().Info("chat completion",
-			"model", model,
-			"stream", false,
-			"finish", "stop",
-			"chars", len(text),
-			"resumed", true,
-			"prompt_tokens", u.PromptTokens,
-			"completion_tokens", u.CompletionTokens,
+		// Dead / missing bridge: fall through to StartRun + ResumeAction over history
+		// (oauth proxy.ts 565–594). Sticky ids still help checkpoint / conversation stickiness.
+		h.Server.log().Info("tool bridge miss; ResumeAction rebuild",
+			"key", bridgeKey,
+			"turns", len(parsed.Turns),
+			"tool_results", len(parsed.ToolResults),
 		)
-		return
+		if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.Turns) == 0 {
+			h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
+			return
+		}
 	}
 
-	mcpTools, err := cursor_api_sdk.BuildMcpToolDefinitions(req.Tools)
+	toolsForRun, err := resolveToolsForMCP(req.Tools, req.ToolChoice)
+	if err != nil {
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	mcpTools, err := cursor_api_sdk.BuildMcpToolDefinitions(toolsForRun)
 	if err != nil {
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
 		return
@@ -197,7 +214,7 @@ func (h *Handler) nonStreamChat(w http.ResponseWriter, r *http.Request, req Chat
 func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest, envelope apiEnvelope) {
 	ctx := r.Context()
 	parsed := cursor_api_sdk.ParseChatMessages(req.Messages)
-	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 {
+	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.ToolResults) == 0 && len(parsed.Turns) == 0 {
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 		return
 	}
@@ -211,11 +228,12 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		return
 	}
 
-	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	id := newChatCompletionID()
 	if envelope == envelopeCompletions {
-		id = fmt.Sprintf("cmpl-%d", time.Now().UnixNano())
+		id = newTextCompletionID()
 	}
 	created := time.Now().Unix()
+	includeUsage := includeStreamUsage(req.StreamOptions)
 	dw := newDelayedWriter(w)
 	committed := false
 
@@ -235,29 +253,41 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 
 	if len(parsed.ToolResults) > 0 {
 		br := h.Server.bridges().take(bridgeKey)
-		if br == nil || br.RC == nil {
-			h.Server.writeAPIError(w, r, http.StatusBadRequest, "no active tool session for this conversation; send conversation_id/thread_id (or the same sticky id) on every tool turn")
+		if br != nil && br.RC != nil {
+			model := br.ModelID
+			if model == "" {
+				model = cursor_api_sdk.ResolveModelID(req.Model)
+			}
+			if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
+				br.RC.Close()
+				h.Server.writeUpstreamError(dw, r, err)
+				_ = dw.Commit()
+				return
+			}
+			if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h, "", "", envelope, includeUsage); err != nil && !committed {
+				br.RC.Close()
+				h.Server.writeUpstreamError(dw, r, err)
+				_ = dw.Commit()
+			}
 			return
 		}
-		model := br.ModelID
-		if model == "" {
-			model = cursor_api_sdk.ResolveModelID(req.Model)
-		}
-		if err := br.RC.SubmitMcpResults(parsed.ToolResults); err != nil {
-			br.RC.Close()
-			h.Server.writeUpstreamError(dw, r, err)
-			_ = dw.Commit()
+		h.Server.log().Info("tool bridge miss; ResumeAction rebuild",
+			"key", bridgeKey,
+			"turns", len(parsed.Turns),
+			"tool_results", len(parsed.ToolResults),
+		)
+		if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 && len(parsed.Turns) == 0 {
+			h.Server.writeAPIError(w, r, http.StatusBadRequest, "No user message found")
 			return
 		}
-		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, model, bridgeKey, br.RC, h, "", "", envelope); err != nil && !committed {
-			br.RC.Close()
-			h.Server.writeUpstreamError(dw, r, err)
-			_ = dw.Commit()
-		}
-		return
 	}
 
-	mcpTools, err := cursor_api_sdk.BuildMcpToolDefinitions(req.Tools)
+	toolsForRun, err := resolveToolsForMCP(req.Tools, req.ToolChoice)
+	if err != nil {
+		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	mcpTools, err := cursor_api_sdk.BuildMcpToolDefinitions(toolsForRun)
 	if err != nil {
 		h.Server.writeAPIError(w, r, http.StatusBadRequest, err.Error())
 		return
@@ -290,7 +320,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, r *http.Request, req ChatCom
 		if err != nil {
 			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
-		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h, payload.Conversation, payload.CheckpointMode, envelope); err != nil {
+		if err := streamFromRun(dw, flusher, commitSSE, &committed, id, created, payload.ModelID, bridgeKey, rc, h, payload.Conversation, payload.CheckpointMode, envelope, includeUsage); err != nil {
 			return cursor_api_sdk.WithModelID(err, sel.PublicID)
 		}
 		return nil
@@ -315,6 +345,7 @@ func streamFromRun(
 	cursorConvID string,
 	checkpointMode string,
 	envelope apiEnvelope,
+	includeUsage bool,
 ) error {
 	toolIndex := 0
 	parked := false
@@ -324,6 +355,12 @@ func streamFromRun(
 			rc.Close()
 		}
 	}()
+	emitUsage := func() error {
+		if !includeUsage {
+			return nil
+		}
+		return writeSSEUsage(dw, id, created, model, rc.Usage(), envelope)
+	}
 
 	ensureRole := func() error {
 		if envelope != envelopeChat || roleSent {
@@ -350,7 +387,7 @@ func streamFromRun(
 			h.Server.log().Warn("stream error after commit", "err", ev.Err)
 			_ = ensureRole()
 			_ = writeSSEFinish(dw, id, created, model, "stop", envelope)
-			_ = writeSSEUsage(dw, id, created, model, rc.Usage(), envelope)
+			_ = emitUsage()
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
 			dw.Flush()
 			return nil
@@ -374,7 +411,7 @@ func streamFromRun(
 				return err
 			}
 			u := rc.Usage()
-			if err := writeSSEUsage(dw, id, created, model, u, envelope); err != nil {
+			if err := emitUsage(); err != nil {
 				return err
 			}
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
@@ -404,7 +441,7 @@ func streamFromRun(
 				return err
 			}
 			u := rc.Usage()
-			if err := writeSSEUsage(dw, id, created, model, u, envelope); err != nil {
+			if err := emitUsage(); err != nil {
 				return err
 			}
 			_, _ = dw.Write([]byte("data: [DONE]\n\n"))
@@ -440,8 +477,7 @@ func streamFromRun(
 	// Stream ended without TurnEnded after content was already flushed.
 	_ = ensureRole()
 	_ = writeSSEFinish(dw, id, created, model, "stop", envelope)
-	u := rc.Usage()
-	_ = writeSSEUsage(dw, id, created, model, u, envelope)
+	_ = emitUsage()
 	_, _ = dw.Write([]byte("data: [DONE]\n\n"))
 	dw.Flush()
 	return nil
@@ -518,11 +554,12 @@ func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text
 			Choices: []textCompletionChoice{{
 				Index:        0,
 				Text:         text,
+				Logprobs:     nil,
 				FinishReason: &stop,
 			}},
 			Usage: toAPIUsage(u),
 		}
-		_ = json.NewEncoder(dw).Encode(resp)
+		_ = writeJSONValue(dw, resp)
 		_ = dw.Commit()
 		return
 	}
@@ -539,7 +576,7 @@ func writeNonStreamText(dw *delayedWriter, id string, created int64, model, text
 		}},
 		Usage: toAPIUsage(u),
 	}
-	_ = json.NewEncoder(dw).Encode(resp)
+	_ = writeJSONValue(dw, resp)
 	_ = dw.Commit()
 }
 
@@ -573,7 +610,7 @@ func writeNonStreamToolCalls(dw *delayedWriter, id string, created int64, model,
 		Usage: toAPIUsage(u),
 	}
 	dw.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(dw).Encode(resp)
+	_ = writeJSONValue(dw, resp)
 	_ = dw.Commit()
 }
 
@@ -607,8 +644,9 @@ func writeSSEContent(w http.ResponseWriter, id string, created int64, model, con
 			Created: created,
 			Model:   model,
 			Choices: []textCompletionChoice{{
-				Index: 0,
-				Text:  content,
+				Index:    0,
+				Text:     content,
+				Logprobs: nil,
 			}},
 		}
 		return writeSSEJSON(w, payload)
@@ -710,7 +748,7 @@ func writeSSEData(w http.ResponseWriter, payload chatCompletionResponse) error {
 }
 
 func writeSSEJSON(w http.ResponseWriter, payload any) error {
-	b, err := json.Marshal(payload)
+	b, err := marshalJSONNoEscape(payload)
 	if err != nil {
 		return err
 	}

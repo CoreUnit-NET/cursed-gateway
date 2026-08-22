@@ -40,13 +40,19 @@ func TestMountAIPrefixes(t *testing.T) {
 		}
 	}
 
-	res, err := http.Get(srv.URL + "/healthz")
-	if err != nil {
-		t.Fatalf("GET /healthz: %v", err)
-	}
-	res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /healthz status=%d, want 200", res.StatusCode)
+	for _, path := range []string{"/healthz", "/health"} {
+		res, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status=%d, want 200", path, res.StatusCode)
+		}
+		if string(body) != "ok\n" {
+			t.Fatalf("GET %s body=%q", path, body)
+		}
 	}
 
 	for _, path := range []string{
@@ -78,8 +84,8 @@ func TestMountAIPrefixes(t *testing.T) {
 		if res.StatusCode != http.StatusBadRequest {
 			t.Fatalf("POST %s status=%d body=%s, want 400", path, res.StatusCode, body)
 		}
-		if !strings.Contains(string(body), "No user message found") {
-			t.Fatalf("POST %s body=%s, want No user message found", path, body)
+		if !strings.Contains(string(body), "prompt is required") {
+			t.Fatalf("POST %s body=%s, want prompt is required", path, body)
 		}
 	}
 }
@@ -134,8 +140,8 @@ func TestMountAIValidationAndUnknown(t *testing.T) {
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("empty completions json status=%d body=%s, want 400", res.StatusCode, body)
 	}
-	if !strings.Contains(string(body), "No user message found") {
-		t.Fatalf("empty completions json body=%s, want No user message found", body)
+	if !strings.Contains(string(body), "prompt is required") {
+		t.Fatalf("empty completions json body=%s, want prompt is required", body)
 	}
 
 	res, body = postRaw(t, srv.URL+"/v1/completions", "application/json", []byte("{"))
