@@ -7,10 +7,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	cursorProto "github.com/CoreUnit-NET/cursed-gateway/lib/cursorProto"
 	"google.golang.org/protobuf/proto"
 )
+
+// MaxToolResultChars caps OpenAI tool-result content before Cursor MCP submit / history rebuild.
+const MaxToolResultChars = 8000
+
+// CapToolResult truncates oversized tool results on a UTF-8 safe boundary.
+func CapToolResult(content string) string {
+	if len(content) <= MaxToolResultChars {
+		return content
+	}
+	return limitUTF8Bytes(content, MaxToolResultChars) + "\n...[truncated]"
+}
+
+func limitUTF8Bytes(s string, max int) string {
+	if max < 0 || len(s) <= max {
+		return s
+	}
+	s = s[:max]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
+}
 
 // ChatMessage is a minimal OpenAI chat message (tools-aware).
 type ChatMessage struct {
@@ -99,10 +122,14 @@ func contentPartText(raw json.RawMessage) (string, bool, error) {
 	}
 }
 
-// ConversationTurn is a prior user/assistant pair.
+// ConversationTurn is a prior user/assistant pair, optionally with tool-result
+// steps that followed a tool_calls assistant (oauth history kind:tool).
 type ConversationTurn struct {
 	UserText      string
 	AssistantText string
+	// ToolResultTexts are inlined into history for ResumeAction rebuilds
+	// (root role=user "[Tool Result]\n…"; turn steps as assistant messages).
+	ToolResultTexts []string
 }
 
 // ParsedChat is the OpenAI → Cursor mapping of a chat request.
@@ -120,6 +147,10 @@ type ParsedChat struct {
 
 // ParseChatMessages splits OpenAI messages into system / history / current user / tool results.
 // Image parts on the action user are kept; prior user images are dropped (history text-only).
+//
+// Empty trailing user (no pending user action) is left empty so BuildRunPayload can emit
+// ResumeAction over reconstructed history — we deliberately do not replay the last user
+// text as a fake action (oauth proxy.ts 665–667, 840–856).
 func ParseChatMessages(messages []ChatMessage) ParsedChat {
 	var systems []string
 	var turns []ConversationTurn
@@ -130,6 +161,12 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 
 	for _, m := range messages {
 		role := strings.ToLower(strings.TrimSpace(m.Role))
+		switch role {
+		case "developer":
+			role = "system"
+		case "function":
+			role = "tool"
+		}
 		text := strings.TrimSpace(m.Content)
 		switch role {
 		case "system":
@@ -137,10 +174,17 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 				systems = append(systems, text)
 			}
 		case "tool":
+			content := CapToolResult(m.Content)
 			toolResults = append(toolResults, ToolResultInfo{
 				ToolCallID: strings.TrimSpace(m.ToolCallID),
-				Content:    m.Content,
+				Content:    content,
 			})
+			// Also keep tool text on the open turn for ResumeAction history rebuild.
+			if len(turns) > 0 {
+				if c := strings.TrimSpace(content); c != "" {
+					turns[len(turns)-1].ToolResultTexts = append(turns[len(turns)-1].ToolResultTexts, c)
+				}
+			}
 		case "user":
 			// History turns are text-only; prior images are not carried forward.
 			if havePendingUser && pendingUser != "" {
@@ -150,13 +194,22 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 			pendingImages = append([]Image(nil), m.Images...)
 			havePendingUser = true
 		case "assistant":
-			// Skip tool_calls-only assistants with no prior user text (continuation is via mcpResult).
 			if havePendingUser && pendingUser != "" {
 				turns = append(turns, ConversationTurn{UserText: pendingUser, AssistantText: text})
+				pendingUser = ""
+				pendingImages = nil
+				havePendingUser = false
+				break
 			}
-			pendingUser = ""
-			pendingImages = nil
-			havePendingUser = false
+			// Assistant after tool results continues the prior turn (oauth step append).
+			if len(turns) > 0 && text != "" {
+				last := &turns[len(turns)-1]
+				if last.AssistantText == "" {
+					last.AssistantText = text
+				} else {
+					last.AssistantText = last.AssistantText + "\n" + text
+				}
+			}
 		}
 	}
 
@@ -165,19 +218,11 @@ func ParseChatMessages(messages []ChatMessage) ParsedChat {
 		system = "You are a helpful assistant."
 	}
 
-	userText := pendingUser
-	userImages := pendingImages
-	if !havePendingUser && userText == "" && len(userImages) == 0 && len(toolResults) == 0 && len(turns) > 0 {
-		last := turns[len(turns)-1]
-		turns = turns[:len(turns)-1]
-		userText = last.UserText
-	}
-
 	return ParsedChat{
 		SystemPrompt: system,
 		Turns:        turns,
-		UserText:     userText,
-		UserImages:   userImages,
+		UserText:     pendingUser,
+		UserImages:   pendingImages,
 		ToolResults:  toolResults,
 	}
 }
@@ -249,7 +294,11 @@ func BuildRunPayloadSelection(sel ModelSelection, parsed ParsedChat) (*RunPayloa
 }
 
 func buildRunPayloadSelection(sel ModelSelection, parsed ParsedChat, prior *StoredCheckpoint) (*RunPayload, error) {
-	if strings.TrimSpace(parsed.UserText) == "" && len(parsed.UserImages) == 0 {
+	userText := strings.TrimSpace(parsed.UserText)
+	hasImages := len(parsed.UserImages) > 0
+	// Empty trailing user → ResumeAction over reconstructed history (oauth 840–856).
+	resume := userText == "" && !hasImages
+	if resume && len(parsed.Turns) == 0 {
 		return nil, fmt.Errorf("chat request missing user message")
 	}
 	if sel.PublicID == "" {
@@ -296,6 +345,21 @@ func buildRunPayloadSelection(sel ModelSelection, parsed ParsedChat, prior *Stor
 			}
 			root = append(root, asstRootID)
 		}
+		// Tool results are root role=user with a [Tool Result] prefix (oauth 758–761).
+		for _, tr := range turn.ToolResultTexts {
+			tr = strings.TrimSpace(tr)
+			if tr == "" {
+				continue
+			}
+			toolRootID, err := storeJSONBlob(blobStore, rootRoleMessage{
+				Role:    "user",
+				Content: []rootTextPart{{Type: "text", Text: "[Tool Result]\n" + tr}},
+			})
+			if err != nil {
+				return nil, err
+			}
+			root = append(root, toolRootID)
+		}
 	}
 
 	// turns[]: blobify nested userMsg / steps, then the turn envelope.
@@ -315,6 +379,21 @@ func buildRunPayloadSelection(sel ModelSelection, parsed ParsedChat, prior *Stor
 			stepBytes, err := proto.Marshal(&cursorProto.ConversationStep{
 				Message: &cursorProto.ConversationStep_AssistantMessage{
 					AssistantMessage: &cursorProto.AssistantMessage{Text: turn.AssistantText},
+				},
+			})
+			if err != nil {
+				return nil, err
+			}
+			stepIDs = append(stepIDs, storeBlob(blobStore, stepBytes))
+		}
+		for _, tr := range turn.ToolResultTexts {
+			tr = strings.TrimSpace(tr)
+			if tr == "" {
+				continue
+			}
+			stepBytes, err := proto.Marshal(&cursorProto.ConversationStep{
+				Message: &cursorProto.ConversationStep_AssistantMessage{
+					AssistantMessage: &cursorProto.AssistantMessage{Text: "[Tool Result]\n" + tr},
 				},
 			})
 			if err != nil {
@@ -375,23 +454,33 @@ func buildRunPayloadSelection(sel ModelSelection, parsed ParsedChat, prior *Stor
 		})
 	}
 
-	actionUser := &cursorProto.UserMessage{
-		Text:      parsed.UserText,
-		MessageId: newUUID(),
-	}
-	if imgs := selectedImagesFromParsed(blobStore, parsed.UserImages); len(imgs) > 0 {
-		actionUser.SelectedContext = &cursorProto.SelectedContext{SelectedImages: imgs}
-	}
-
-	runReq := &cursorProto.AgentRunRequest{
-		ConversationState: state,
-		Action: &cursorProto.ConversationAction{
+	var action *cursorProto.ConversationAction
+	if resume {
+		action = &cursorProto.ConversationAction{
+			Action: &cursorProto.ConversationAction_ResumeAction{
+				ResumeAction: &cursorProto.ResumeAction{},
+			},
+		}
+	} else {
+		actionUser := &cursorProto.UserMessage{
+			Text:      parsed.UserText,
+			MessageId: newUUID(),
+		}
+		if imgs := selectedImagesFromParsed(blobStore, parsed.UserImages); len(imgs) > 0 {
+			actionUser.SelectedContext = &cursorProto.SelectedContext{SelectedImages: imgs}
+		}
+		action = &cursorProto.ConversationAction{
 			Action: &cursorProto.ConversationAction_UserMessageAction{
 				UserMessageAction: &cursorProto.UserMessageAction{
 					UserMessage: actionUser,
 				},
 			},
-		},
+		}
+	}
+
+	runReq := &cursorProto.AgentRunRequest{
+		ConversationState: state,
+		Action:            action,
 		ModelDetails: &cursorProto.ModelDetails{
 			ModelId:        sel.WireModelID,
 			DisplayModelId: sel.PublicID,

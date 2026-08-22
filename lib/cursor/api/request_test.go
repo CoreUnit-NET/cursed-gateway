@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	cursorProto "github.com/CoreUnit-NET/cursed-gateway/lib/cursorProto"
 	"google.golang.org/protobuf/proto"
@@ -26,6 +28,127 @@ func TestParseChatMessages(t *testing.T) {
 	}
 	if len(parsed.Turns) != 1 || parsed.Turns[0].UserText != "hi" || parsed.Turns[0].AssistantText != "hello" {
 		t.Fatalf("turns = %#v", parsed.Turns)
+	}
+}
+
+func TestParseChatMessagesDeveloperAndFunctionRoles(t *testing.T) {
+	parsed := ParseChatMessages([]ChatMessage{
+		{Role: "developer", Content: "be brief"},
+		{Role: "user", Content: "lookup x"},
+		{Role: "assistant", Content: ""},
+		{Role: "function", ToolCallID: "call_1", Content: `{"ok":true}`},
+	})
+	if parsed.SystemPrompt != "be brief" {
+		t.Fatalf("system = %q", parsed.SystemPrompt)
+	}
+	if parsed.UserText != "" {
+		t.Fatalf("user = %q, want empty for ResumeAction", parsed.UserText)
+	}
+	if len(parsed.ToolResults) != 1 || parsed.ToolResults[0].ToolCallID != "call_1" {
+		t.Fatalf("ToolResults = %#v", parsed.ToolResults)
+	}
+	if len(parsed.Turns) != 1 || parsed.Turns[0].UserText != "lookup x" {
+		t.Fatalf("turns = %#v", parsed.Turns)
+	}
+	if len(parsed.Turns[0].ToolResultTexts) != 1 || parsed.Turns[0].ToolResultTexts[0] != `{"ok":true}` {
+		t.Fatalf("ToolResultTexts = %#v", parsed.Turns[0].ToolResultTexts)
+	}
+}
+
+func TestParseChatMessagesEmptyTrailingUserNoFakeReplay(t *testing.T) {
+	parsed := ParseChatMessages([]ChatMessage{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "hello"},
+	})
+	if parsed.UserText != "" {
+		t.Fatalf("user = %q, want empty (no fake replay)", parsed.UserText)
+	}
+	if len(parsed.Turns) != 1 || parsed.Turns[0].UserText != "hi" || parsed.Turns[0].AssistantText != "hello" {
+		t.Fatalf("turns = %#v", parsed.Turns)
+	}
+}
+
+func TestParseChatMessagesToolResultsOnTurn(t *testing.T) {
+	parsed := ParseChatMessages([]ChatMessage{
+		{Role: "user", Content: "lookup x"},
+		{Role: "assistant", Content: ""},
+		{Role: "tool", ToolCallID: "call_1", Content: `{"ok":true}`},
+	})
+	if parsed.UserText != "" {
+		t.Fatalf("user = %q, want empty for ResumeAction", parsed.UserText)
+	}
+	if len(parsed.ToolResults) != 1 || parsed.ToolResults[0].ToolCallID != "call_1" {
+		t.Fatalf("ToolResults = %#v", parsed.ToolResults)
+	}
+	if len(parsed.Turns) != 1 {
+		t.Fatalf("turns = %#v", parsed.Turns)
+	}
+	tr := parsed.Turns[0]
+	if tr.UserText != "lookup x" {
+		t.Fatalf("turn user = %q", tr.UserText)
+	}
+	if len(tr.ToolResultTexts) != 1 || tr.ToolResultTexts[0] != `{"ok":true}` {
+		t.Fatalf("ToolResultTexts = %#v", tr.ToolResultTexts)
+	}
+}
+
+func TestCapToolResult(t *testing.T) {
+	short := "hello"
+	if got := CapToolResult(short); got != short {
+		t.Fatalf("short=%q", got)
+	}
+
+	exact := strings.Repeat("a", MaxToolResultChars)
+	if got := CapToolResult(exact); got != exact {
+		t.Fatalf("exact len=%d", len(got))
+	}
+
+	over := strings.Repeat("b", MaxToolResultChars+50)
+	got := CapToolResult(over)
+	if !strings.HasSuffix(got, "\n...[truncated]") {
+		t.Fatalf("missing truncation marker: %q", got[len(got)-20:])
+	}
+	body := strings.TrimSuffix(got, "\n...[truncated]")
+	if len(body) > MaxToolResultChars {
+		t.Fatalf("body len=%d want <= %d", len(body), MaxToolResultChars)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("truncated output must be valid UTF-8")
+	}
+
+	// Multi-byte rune straddling the cut must not leave invalid UTF-8.
+	prefix := strings.Repeat("x", MaxToolResultChars-1)
+	multi := prefix + "⌘more"
+	got = CapToolResult(multi)
+	if !utf8.ValidString(got) {
+		t.Fatal("utf8-safe truncate failed")
+	}
+	if !strings.HasSuffix(got, "\n...[truncated]") {
+		t.Fatalf("expected truncation: %q", got)
+	}
+}
+
+func TestParseChatMessagesCapsToolResults(t *testing.T) {
+	huge := strings.Repeat("z", MaxToolResultChars+100)
+	parsed := ParseChatMessages([]ChatMessage{
+		{Role: "user", Content: "lookup x"},
+		{Role: "assistant", Content: ""},
+		{Role: "tool", ToolCallID: "call_1", Content: huge},
+	})
+	if len(parsed.ToolResults) != 1 {
+		t.Fatalf("ToolResults=%#v", parsed.ToolResults)
+	}
+	if parsed.ToolResults[0].Content == huge {
+		t.Fatal("expected CapToolResult on ToolResults")
+	}
+	if !strings.HasSuffix(parsed.ToolResults[0].Content, "\n...[truncated]") {
+		t.Fatalf("ToolResults content=%q", parsed.ToolResults[0].Content[len(parsed.ToolResults[0].Content)-20:])
+	}
+	if len(parsed.Turns) != 1 || len(parsed.Turns[0].ToolResultTexts) != 1 {
+		t.Fatalf("turns=%#v", parsed.Turns)
+	}
+	if parsed.Turns[0].ToolResultTexts[0] != parsed.ToolResults[0].Content {
+		t.Fatalf("ToolResultTexts mismatch: %#v vs %#v", parsed.Turns[0].ToolResultTexts[0], parsed.ToolResults[0].Content)
 	}
 }
 
@@ -360,6 +483,113 @@ func TestBuildRunPayloadMissingUserStillErrors(t *testing.T) {
 	_, err := BuildRunPayload("composer-2.5", ParsedChat{SystemPrompt: "sys"})
 	if err == nil {
 		t.Fatal("expected missing user error")
+	}
+	if !strings.Contains(err.Error(), "missing user message") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestBuildRunPayloadResumeAction(t *testing.T) {
+	payload, err := BuildRunPayload("composer-2.5", ParsedChat{
+		SystemPrompt: "sys",
+		Turns: []ConversationTurn{
+			{UserText: "hi", AssistantText: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg cursorProto.AgentClientMessage
+	if err := proto.Unmarshal(payload.RequestBytes, &msg); err != nil {
+		t.Fatal(err)
+	}
+	run := msg.GetRunRequest()
+	if run == nil || run.GetAction() == nil {
+		t.Fatal("missing run action")
+	}
+	if run.GetAction().GetResumeAction() == nil {
+		t.Fatalf("expected ResumeAction, got %#v", run.GetAction())
+	}
+	if run.GetAction().GetUserMessageAction() != nil {
+		t.Fatal("must not emit UserMessageAction for empty trailing user")
+	}
+	if got := len(run.ConversationState.Turns); got != 1 {
+		t.Fatalf("turns = %d, want 1", got)
+	}
+}
+
+func TestBuildRunPayloadResumeIncludesToolResults(t *testing.T) {
+	payload, err := BuildRunPayload("composer-2.5", ParsedChat{
+		SystemPrompt: "sys",
+		Turns: []ConversationTurn{{
+			UserText:        "lookup x",
+			AssistantText:   "",
+			ToolResultTexts: []string{`{"ok":true}`},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg cursorProto.AgentClientMessage
+	if err := proto.Unmarshal(payload.RequestBytes, &msg); err != nil {
+		t.Fatal(err)
+	}
+	run := msg.GetRunRequest()
+	if run.GetAction().GetResumeAction() == nil {
+		t.Fatalf("expected ResumeAction, got %#v", run.GetAction())
+	}
+	// system + user + tool-result root blobs
+	if got := len(run.ConversationState.RootPromptMessagesJson); got != 3 {
+		t.Fatalf("root len = %d, want 3", got)
+	}
+	foundTool := false
+	for _, id := range run.ConversationState.RootPromptMessagesJson {
+		raw := payload.BlobStore[hex.EncodeToString(id)]
+		var root rootRoleMessage
+		if err := json.Unmarshal(raw, &root); err != nil {
+			t.Fatal(err)
+		}
+		if root.Role != "user" {
+			continue
+		}
+		parts, _ := root.Content.([]any)
+		if len(parts) == 0 {
+			// Content may decode as []rootTextPart via typed JSON — check string form.
+			s := string(raw)
+			if strings.Contains(s, "[Tool Result]") && strings.Contains(s, `{"ok":true}`) {
+				foundTool = true
+				break
+			}
+			continue
+		}
+		if strings.Contains(string(raw), "[Tool Result]") {
+			foundTool = true
+			break
+		}
+	}
+	if !foundTool {
+		t.Fatal("expected [Tool Result] root blob")
+	}
+	if got := len(run.ConversationState.Turns); got != 1 {
+		t.Fatalf("turns = %d", got)
+	}
+	turnRaw := payload.BlobStore[hex.EncodeToString(run.ConversationState.Turns[0])]
+	var turnStruct cursorProto.ConversationTurnStructure
+	if err := proto.Unmarshal(turnRaw, &turnStruct); err != nil {
+		t.Fatal(err)
+	}
+	agent := turnStruct.GetAgentConversationTurn()
+	if agent == nil || len(agent.Steps) != 1 {
+		t.Fatalf("agent steps = %#v", agent)
+	}
+	stepRaw := payload.BlobStore[hex.EncodeToString(agent.Steps[0])]
+	var step cursorProto.ConversationStep
+	if err := proto.Unmarshal(stepRaw, &step); err != nil {
+		t.Fatal(err)
+	}
+	am := step.GetAssistantMessage()
+	if am == nil || !strings.HasPrefix(am.Text, "[Tool Result]\n") {
+		t.Fatalf("step = %#v", am)
 	}
 }
 
