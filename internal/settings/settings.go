@@ -38,6 +38,7 @@ type Settings struct {
 	MaxLoginAttempts int
 	LoginAttemptMins int
 	LoginKeepMins    int
+	EnableUI         bool
 }
 
 // FromAppConfig validates cfg and returns Settings.
@@ -61,6 +62,7 @@ func FromAppConfig(cfg *config.AppConfig) (*Settings, error) {
 		MaxLoginAttempts: cfg.MaxLoginAttempts,
 		LoginAttemptMins: cfg.LoginAttemptMins,
 		LoginKeepMins:    cfg.LoginKeepMins,
+		EnableUI:         cfg.EnableUI,
 	}
 	if err := s.validate(); err != nil {
 		return nil, err

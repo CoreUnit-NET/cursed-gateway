@@ -35,13 +35,25 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- RunServe(ctx, s, &cursor_account_sdk.Client{})
+		errCh <- RunServe(ctx, s, &cursor_account_sdk.Client{}, nil)
 	}()
 
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	waitHTTP(t, base+"/healthz", http.StatusOK)
 
 	client := &http.Client{Timeout: 5 * time.Second}
+
+	for _, path := range []string{"/", "/css/app.css", "/index.html"} {
+		res, err := client.Get(base + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusNotFound {
+			t.Fatalf("GET %s status=%d body=%s, want 404 (UI disabled)", path, res.StatusCode, body)
+		}
+	}
 
 	res, err := client.Get(base + "/login")
 	if err != nil {
@@ -386,12 +398,60 @@ func TestRunServeLoginGoneAndControlAPI(t *testing.T) {
 	}
 
 	cancel()
+	waitRunServeExit(t, errCh)
+}
+
+func TestRunServeUIEnabled(t *testing.T) {
+	dir := t.TempDir()
+	port := freePort(t)
+
+	s := &settings.Settings{
+		Host:             "127.0.0.1",
+		Port:             port,
+		AuthPath:         filepath.Join(dir, "data.json"),
+		MaxRetries:       1,
+		CooldownMins:     10,
+		MaxLoginAttempts: 3,
+		LoginAttemptMins: 3,
+		LoginKeepMins:    5,
+		EnableUI:         true,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- RunServe(ctx, s, &cursor_account_sdk.Client{}, testUIFilesystem(t))
+	}()
+
+	base := fmt.Sprintf("http://127.0.0.1:%d", port)
+	waitHTTP(t, base+"/healthz", http.StatusOK)
+
+	res, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET / status=%d body=%s, want 200", res.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "<html") && !strings.Contains(string(body), "<!DOCTYPE html>") {
+		t.Fatalf("GET / body missing html")
+	}
+
+	cancel()
+	waitRunServeExit(t, errCh)
+}
+
+func waitRunServeExit(t *testing.T, errCh <-chan error) {
+	t.Helper()
 	select {
 	case err := <-errCh:
 		if err != nil {
 			t.Fatalf("RunServe: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("RunServe did not exit")
 	}
 }

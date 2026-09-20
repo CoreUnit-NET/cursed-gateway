@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 
@@ -25,11 +26,13 @@ import (
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 )
 
-// Runtime is shared wiring for handlers (stdout/stderr, auth client).
+// Runtime is shared wiring for handlers (stdout/stderr, auth client, optional UI).
 type Runtime struct {
 	Out    io.Writer
 	Err    io.Writer
 	Client *cursor_account_sdk.Client
+	// UI is the embedded control SPA filesystem; nil when UI is disabled.
+	UI fs.FS
 }
 
 func (r *Runtime) out() io.Writer {

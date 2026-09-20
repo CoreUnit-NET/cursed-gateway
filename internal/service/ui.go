@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// mountUI serves the embedded control SPA under /, /css/, and /js/.
+// mountUI serves the control SPA under /, /css/, and /js/ when uiFS is provided.
 // More specific /api, /ai, /v1, and /healthz routes keep precedence.
 func mountUI(mux *http.ServeMux, fsys fs.FS) {
 	if mux == nil || fsys == nil {

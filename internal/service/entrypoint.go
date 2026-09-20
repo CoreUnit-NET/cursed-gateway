@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -27,7 +28,6 @@ import (
 	"github.com/CoreUnit-NET/cursed-gateway/internal/settings"
 	cursor_account_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/account"
 	cursor_api_sdk "github.com/CoreUnit-NET/cursed-gateway/lib/cursor/api"
-	"github.com/CoreUnit-NET/cursed-gateway/ui"
 )
 
 // PrintModels fetches and prints available Cursor models.
@@ -61,8 +61,9 @@ func PrintModels(ctx context.Context, s *settings.Settings, out io.Writer, clien
 }
 
 // RunServe starts the OpenAI-compatible HTTP proxy and session refresh loops.
+// uiFS is the control SPA filesystem; when nil, static UI routes are not mounted.
 // It uses slog.Default(); callers (cmd_handler.Dispatch) must install the process logger first.
-func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_sdk.Client) error {
+func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_sdk.Client, uiFS fs.FS) error {
 	log := slog.Default()
 
 	store, err := login_session.NewStore(s.AuthPath, client)
@@ -100,7 +101,9 @@ func RunServe(ctx context.Context, s *settings.Settings, client *cursor_account_
 		LoginKeepMins:    s.LoginKeepMins,
 	}
 	control.Mount(mux)
-	mountUI(mux, ui.FS)
+	if uiFS != nil {
+		mountUI(mux, uiFS)
+	}
 
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	httpSrv := &http.Server{

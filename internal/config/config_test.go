@@ -12,7 +12,7 @@ func clearConfigEnv(t *testing.T) {
 	for _, key := range []string{
 		"HOST", "PORT", "AUTH_PATH", "MAX_RETRIES", "COOLDOWN_MINS",
 		"PREFER_PRO", "VERBOSE", "MAX_LOGIN_ATTEMPTS",
-		"LOGIN_ATTEMPT_MINS", "LOGIN_KEEP_MINS",
+		"LOGIN_ATTEMPT_MINS", "LOGIN_KEEP_MINS", "ENABLE_UI",
 	} {
 		t.Setenv(key, "")
 	}
@@ -59,6 +59,9 @@ func TestParseConfigDefaults(t *testing.T) {
 	if cfg.LoginKeepMins != 5 {
 		t.Fatalf("LoginKeepMins = %d, want 5", cfg.LoginKeepMins)
 	}
+	if cfg.EnableUI {
+		t.Fatal("expected EnableUI false by default")
+	}
 }
 
 func TestParseConfigFlagsOverrideEnv(t *testing.T) {
@@ -76,6 +79,7 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	t.Setenv("MAX_LOGIN_ATTEMPTS", "9")
 	t.Setenv("LOGIN_ATTEMPT_MINS", "1")
 	t.Setenv("LOGIN_KEEP_MINS", "2")
+	t.Setenv("ENABLE_UI", "true")
 
 	os.Args = []string{
 		"cursed-gateway", "serve",
@@ -86,6 +90,7 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 		"-c", "20",
 		"--prefer-pro=true",
 		"-b",
+		"--ui=false",
 	}
 	cfg, err := ParseConfig("Demo", "demo")
 	if err != nil {
@@ -122,6 +127,9 @@ func TestParseConfigFlagsOverrideEnv(t *testing.T) {
 	if cfg.LoginKeepMins != 2 {
 		t.Fatalf("LoginKeepMins = %d, want env 2", cfg.LoginKeepMins)
 	}
+	if cfg.EnableUI {
+		t.Fatal("expected EnableUI false from flag overriding env")
+	}
 }
 
 func TestParseConfigEnvOnly(t *testing.T) {
@@ -137,6 +145,7 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	t.Setenv("MAX_LOGIN_ATTEMPTS", "1")
 	t.Setenv("LOGIN_ATTEMPT_MINS", "4")
 	t.Setenv("LOGIN_KEEP_MINS", "6")
+	t.Setenv("ENABLE_UI", "true")
 
 	os.Args = []string{"cursed-gateway", "serve"}
 	cfg, err := ParseConfig("Demo", "demo")
@@ -167,6 +176,9 @@ func TestParseConfigEnvOnly(t *testing.T) {
 	}
 	if cfg.LoginKeepMins != 6 {
 		t.Fatalf("LoginKeepMins = %d, want env 6", cfg.LoginKeepMins)
+	}
+	if !cfg.EnableUI {
+		t.Fatal("expected EnableUI true from env")
 	}
 }
 

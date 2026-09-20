@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/CoreUnit-NET/cursed-gateway/ui"
 )
 
 func TestWrapMuxJSONNotFoundAndMethodNotAllowed(t *testing.T) {
@@ -166,7 +167,7 @@ func TestMountUIServesIndexAndAssets(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}` + "\n"))
 	})
-	mountUI(mux, ui.FS)
+	mountUI(mux, testUIFilesystem(t))
 
 	srv := httptest.NewServer(wrapMux(mux, slog.New(slog.NewTextHandler(io.Discard, nil))))
 	t.Cleanup(srv.Close)
@@ -223,6 +224,39 @@ func TestMountUIServesIndexAndAssets(t *testing.T) {
 	if loc := res.Header.Get("Location"); loc != "/" {
 		t.Fatalf("GET /index.html Location=%q, want /", loc)
 	}
+}
+
+func TestRootWithoutUIReturns404(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}` + "\n"))
+	})
+
+	srv := httptest.NewServer(wrapMux(mux, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	t.Cleanup(srv.Close)
+	client := srv.Client()
+
+	for _, path := range []string{"/", "/css/app.css", "/index.html"} {
+		res, body := doHTTP(t, client, http.MethodGet, srv.URL+path, nil)
+		if res.StatusCode != http.StatusNotFound {
+			t.Fatalf("GET %s status=%d body=%s, want 404", path, res.StatusCode, body)
+		}
+	}
+
+	res, body := doHTTP(t, client, http.MethodGet, srv.URL+"/api/status", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/status status=%d body=%s, want 200", res.StatusCode, body)
+	}
+}
+
+func testUIFilesystem(t *testing.T) fs.FS {
+	t.Helper()
+	fsys := os.DirFS(filepath.Join("..", "..", "ui"))
+	if _, err := fs.Stat(fsys, "index.html"); err != nil {
+		t.Fatalf("ui test fixtures: %v", err)
+	}
+	return fsys
 }
 
 func doHTTP(t *testing.T, client *http.Client, method, url string, body []byte) (*http.Response, []byte) {

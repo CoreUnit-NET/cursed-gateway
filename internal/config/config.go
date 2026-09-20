@@ -48,6 +48,8 @@ type AppConfig struct {
 	LoginAttemptMins int
 	// LoginKeepMins keeps a resolved login attempt listed after success/fail.
 	LoginKeepMins int
+	// EnableUI serves the embedded control SPA at /, /css/, /js/ when true.
+	EnableUI bool
 
 	// SessionsCheck is set by `sessions --check`.
 	SessionsCheck bool
@@ -69,6 +71,7 @@ func defaultAppConfig() *AppConfig {
 		MaxLoginAttempts: 3,
 		LoginAttemptMins: 3,
 		LoginKeepMins:    5,
+		EnableUI:         false,
 
 		ImportPath: "./data/auth.json",
 	}
@@ -221,6 +224,11 @@ func loadEnvVars(appConfig *AppConfig) error {
 	}); err != nil {
 		return err
 	}
+	if err := envIsBool("ENABLE_UI", func(value bool) {
+		appConfig.EnableUI = value
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -233,6 +241,7 @@ func applyServeFlags(appConfig *AppConfig, cmd *cobra.Command) {
 	cmd.PersistentFlags().IntVarP(&appConfig.MaxRetries, "retries", "r", appConfig.MaxRetries, "max account fallback attempts per request (MAX_RETRIES)")
 	cmd.PersistentFlags().IntVarP(&appConfig.CooldownMins, "cooldown", "c", appConfig.CooldownMins, "cooldown minutes for rate-limited accounts (COOLDOWN_MINS)")
 	cmd.PersistentFlags().BoolVar(&appConfig.PreferPro, "prefer-pro", appConfig.PreferPro, "prefer Pro accounts over Free (PREFER_PRO)")
+	cmd.PersistentFlags().BoolVar(&appConfig.EnableUI, "ui", appConfig.EnableUI, "serve embedded control SPA at /, /css/, /js/ (ENABLE_UI)")
 }
 
 // ParseConfig loads env defaults, parses CLI flags/subcommands, and returns the app config.

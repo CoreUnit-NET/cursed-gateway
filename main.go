@@ -10,8 +10,10 @@ defaults to serve. Long-lived serve work is delegated to internal/service.
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,10 +24,21 @@ import (
 	"github.com/joho/godotenv"
 )
 
+//go:embed ui
+var embeddedUI embed.FS
+
 var DisplayName string = "Unset"
 var ShortName string = "unset"
 var Version string = "?.?.?"
 var Commit string = "???????"
+
+func uiFilesystem() fs.FS {
+	fsys, err := fs.Sub(embeddedUI, "ui")
+	if err != nil {
+		panic("ui embed: " + err.Error())
+	}
+	return fsys
+}
 
 func main() {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -50,7 +63,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := cmd_handler.Dispatch(ctx, s, DisplayName, Version, Commit, nil); err != nil {
+	rt := &cmd_handler.Runtime{}
+	if s.EnableUI {
+		rt.UI = uiFilesystem()
+	}
+
+	if err := cmd_handler.Dispatch(ctx, s, DisplayName, Version, Commit, rt); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
