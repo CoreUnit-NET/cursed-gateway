@@ -44,7 +44,8 @@ Put it on localhost or a private network next to your agents. Terminate TLS and 
 - **Cursor auth.json import:** `import` is the only path that reads Cursor-style `auth.json` and merges sessions into the gateway store.
 - **Multi-account store:** Run several Cursor accounts at once under one gateway.
 - **Account management CLI:** `logout` and `sessions` operate on the session store / config only—no need for a running gateway process.
-- **Control API:** REST under `/api` for accounts, login attempts, and service state — resource/state URLs, not CLI task names. Add accounts with `POST /api/accounts` (test against Cursor, then store) or by finishing a `/api/login` attempt.
+- **Control API:** REST under `/api` for accounts, login attempts, and service state — resource/state URLs, not CLI task names. Add accounts with `POST /api/accounts` (test against Cursor, then store) or by finishing a `/api/login-attempts` attempt.
+- **Optional control SPA:** Embedded web UI at `/` when enabled (`ENABLE_UI` or `--ui`); off by default so headless/API-only deployments stay lean.
 - **HTTP path split:** AI under `/ai` (example `/ai/v1/models`); Control API under `/api`. `/v1` remains as an alias.
 - **Staggered token refresh:** Spreads refresh work across accounts (`lifetime - margin`, oldest refresh first). Boot fast-refresh handles tokens close to expiry first.
 - **OpenAI-compatible API:** Text, chat, and streaming; image/media where Cursor supports it.
@@ -90,7 +91,7 @@ Start the Cursor OAuth PKCE flow and write the access/refresh session into the g
 cursed-gateway login
 ```
 
-HTTP: `POST /api/login` creates a PKCE attempt and returns `id` plus `url`. Completing that attempt in the browser adds the account. See [Control API](#control-api).
+HTTP: `POST /api/login-attempts` creates a PKCE attempt and returns `id` plus `url`. Completing that attempt in the browser adds the account. See [Control API](#control-api).
 
 ### import
 
@@ -162,14 +163,22 @@ Start the OpenAI-compatible proxy:
 cursed-gateway serve
 ```
 
-Point clients at `http://<host>:<port>/ai/v1` (default `http://0.0.0.0:8080/ai/v1`). `/v1` still works as an alias. Control API on the same listener: `GET /api`.
+Serve the embedded control SPA at `/` (off by default):
+
+```sh
+cursed-gateway serve --ui
+# or
+ENABLE_UI=true cursed-gateway serve
+```
+
+Point clients at `http://<host>:<port>/ai/v1` (default `http://0.0.0.0:8080/ai/v1`). `/v1` still works as an alias. Control API on the same listener: `GET /api/status`. Health: `GET /healthz` (and `GET /health`).
 
 ### Control API
 
 HTTP is split by resource, not by CLI task names (`sessions`, `login`):
 
 - `/ai/*` — OpenAI-like AI. Example: `/ai/v1/models`. `/v1` remains as an alias.
-- `/api/*` — Control API: accounts, login attempts, and service state.
+- `/api/*` — Control API: accounts, login attempts, and service state (`/api/status`, `/api/accounts`, `/api/login-attempts`).
 
 The process is a shared account pool: callers add accounts and use `/ai`. There is no mapping from caller to account.
 
@@ -179,7 +188,7 @@ Errors on most routes are `{"error":"<message>"}`. `POST /api/accounts` uses `{o
 
 **Service**
 
-`GET /api` — account count, login-attempt count, and the login-attempt limits:
+`GET /api/status` — account count, login-attempt count, and the login-attempt limits:
 
 ```json
 {
@@ -233,12 +242,12 @@ Success / failure:
 
 **Login attempts**
 
-- `POST /api/login` — create a PKCE attempt (not an account). `201` with `id`, `url`, and `state`. `409` when open attempts are at the cap.
-- `GET /api/login` — list open attempts (and recently resolved ones still in the keep window).
-- `GET /api/login/<id>` — one attempt: URL, login state, and `account_id` after success.
-- `DELETE /api/login/<id>` — close that attempt (`204`).
+- `POST /api/login-attempts` — create a PKCE attempt (not an account). `201` with `id`, `url`, and `state`. `409` when open attempts are at the cap.
+- `GET /api/login-attempts` — list open attempts (and recently resolved ones still in the keep window).
+- `GET /api/login-attempts/<id>` — one attempt: URL, login state, and `account_id` after success.
+- `DELETE /api/login-attempts/<id>` — close that attempt (`204`).
 
-`POST /api/login` needs no body:
+`POST /api/login-attempts` needs no body:
 
 ```json
 {
@@ -251,7 +260,7 @@ Success / failure:
 List:
 
 ```json
-{ "login": [ { "id": "...", "url": "...", "state": "pending" } ] }
+{ "login_attempts": [ { "id": "...", "url": "...", "state": "pending" } ] }
 ```
 
 `state` is `pending`, `succeeded`, `failed`, or `expired`. After success the attempt also has `account_id` (the new account `id`, not the attempt `id`). Failed attempts may include `error`.
@@ -278,6 +287,7 @@ A `.env` file in the working directory is loaded at startup when present (missin
 - `MAX_RETRIES` or `-r` / `--retries`: max account fallback attempts per request, defaults to `5`
 - `COOLDOWN_MINS` or `-c` / `--cooldown`: cooldown minutes for rate-limited accounts, defaults to `15`
 - `PREFER_PRO` or `--prefer-pro`: prefer Pro accounts over Free, defaults to `true`
+- `ENABLE_UI` or `--ui`: serve the embedded control SPA at `/`, `/css/`, and `/js/`, defaults to `false`
 - `VERBOSE` or `-b` / `--verbose`: enable debug and trace logs, defaults to `false`
 
 Login-attempt limits are environment variables only (no flags):
@@ -307,7 +317,7 @@ Flags and environment variables:
 
 ### Reverse proxy examples
 
-Terminate TLS and optionally serve a static Control UI in front of the plain HTTP gateway.
+Terminate TLS in front of the plain HTTP gateway. For the control SPA, either enable the embedded UI (`ENABLE_UI` / `--ui`) or serve static files in the reverse proxy (examples below).
 
 Caddy:
 
