@@ -163,7 +163,7 @@ clean: ##@ cleans up generated files and docker cache
 
 .PHONY: run
 run: ##@ runs the main.go file using go run
-	@go run main.go $(ARGS)
+	@go run -ldflags=$(PROJECT_BUILD_ARGS) main.go $(ARGS)
 
 .PHONY: build
 build: ##@ uses go to build the app with build args
@@ -234,3 +234,11 @@ docker/deploy: ##@ runs app in docker in a fresh environment
 	docker compose run --rm -it --build --service-ports \
 		--name dev-$(PROJECT_SHORT_NAME) \
 		deploy
+
+.PHONY: docker/up
+docker/up: ##@ starts deploy service detached
+	docker compose up -d --build --force-recreate deploy
+
+.PHONY: docker/down
+docker/down: ##@ stops compose services
+	docker compose down --remove-orphans

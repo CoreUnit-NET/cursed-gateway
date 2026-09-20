@@ -1,0 +1,34 @@
+# VCS / IDE
+.git
+.github
+.idea
+.vscode
+
+# Local secrets and runtime data (compose mounts/env_file at run time)
+# Keep `.env.project` in context so `make build` can stamp PROJECT_* ldflags.
+.env
+data/
+.store/
+context/
+
+# Build / cache artifacts
+bin/
+tmp/
+*.test
+*.out
+coverage*
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Docs and misc not needed for `make build`
+*.md
+LICENSE
+.gitignore
+.air.toml
+compose.yml
+compose.*.yml
+.dockerignore
+Dockerfile
+Dockerfile.*
